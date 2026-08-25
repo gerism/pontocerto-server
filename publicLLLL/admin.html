@@ -354,7 +354,7 @@ async function carregarInscritos() {
       return;
     }
 
-   
+    resultado.innerHTML = `
       <table>
         <tr><th>Nome</th><th>Idade</th><th>Categoria</th><th>Sexo</th><th>Peso</th><th>Tag</th></tr>
         ${inscritos.map(i => `
