@@ -97,6 +97,25 @@
   table { width: 100%; border-collapse: collapse; margin-top: 16px; font-size: 12.5px; }
   th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid #2c3038; }
   th { color: #9a9ba3; font-size: 11px; text-transform: uppercase; }
+
+  .categoria-linha {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    margin-bottom: 8px;
+  }
+  .categoria-linha input { flex: 1; }
+  .categoria-linha input.idade { max-width: 70px; }
+  .btn-remover-cat {
+    background: none;
+    border: 1px solid #f87171;
+    color: #f87171;
+    border-radius: 8px;
+    padding: 10px 12px;
+    font-size: 12px;
+    cursor: pointer;
+    flex-shrink: 0;
+  }
 </style>
 </head>
 <body>
@@ -124,6 +143,10 @@
 
       <label>Valor da inscrição (R$) *</label>
       <input type="number" id="valorCriar" placeholder="Ex: 50.00" step="0.01">
+
+      <label>Categorias por idade *</label>
+      <div id="listaCategorias"></div>
+      <button type="button" class="acao" style="margin-top:8px; background:#1a1d24; color:#f3ede4; border:1px solid #2c3038;" onclick="adicionarCategoria()">+ Adicionar faixa de idade</button>
 
       <button class="acao" id="btnCriar" onclick="criarEvento()">Criar evento</button>
 
@@ -165,6 +188,7 @@
 
 <script>
 let eventoSelecionadoId = null;
+let contadorCategoria = 0;
 
 function mudarAba(aba) {
   document.getElementById('tabCriar').classList.toggle('active', aba === 'criar');
@@ -173,17 +197,54 @@ function mudarAba(aba) {
   document.getElementById('painelInscritos').classList.toggle('active', aba === 'inscritos');
 }
 
+function adicionarCategoria(nome = '', min = '', max = '') {
+  contadorCategoria++;
+  const id = `cat${contadorCategoria}`;
+  const div = document.createElement('div');
+  div.className = 'categoria-linha';
+  div.id = id;
+  div.innerHTML = `
+    <input type="text" class="cat-nome" placeholder="Ex: 15 a 20 anos" value="${nome}">
+    <input type="number" class="cat-min idade" placeholder="Min" value="${min}">
+    <input type="number" class="cat-max idade" placeholder="Max" value="${max}">
+    <button type="button" class="btn-remover-cat" onclick="document.getElementById('${id}').remove()">✕</button>
+  `;
+  document.getElementById('listaCategorias').appendChild(div);
+}
+
+// já começa com uma linha em branco pra facilitar
+adicionarCategoria();
+
+function coletarCategorias() {
+  const linhas = document.querySelectorAll('.categoria-linha');
+  const categorias = [];
+  for (const linha of linhas) {
+    const nome = linha.querySelector('.cat-nome').value.trim();
+    const idade_min = parseInt(linha.querySelector('.cat-min').value, 10);
+    const idade_max = parseInt(linha.querySelector('.cat-max').value, 10);
+    if (nome && !isNaN(idade_min) && !isNaN(idade_max)) {
+      categorias.push({ nome, idade_min, idade_max });
+    }
+  }
+  return categorias;
+}
+
 async function criarEvento() {
   const senha = document.getElementById('senhaCriar').value.trim();
   const nome = document.getElementById('nomeCriar').value.trim();
   const codigo = document.getElementById('codigoCriar').value.trim().toUpperCase();
   const data_evento = document.getElementById('dataCriar').value;
   const valor_inscricao = document.getElementById('valorCriar').value;
+  const categorias = coletarCategorias();
   const resultado = document.getElementById('resultadoCriar');
   const btn = document.getElementById('btnCriar');
 
   if (!senha || !nome || !codigo || !data_evento || !valor_inscricao) {
     resultado.innerHTML = '<span class="erro">Preenche todos os campos obrigatórios.</span>';
+    return;
+  }
+  if (categorias.length === 0) {
+    resultado.innerHTML = '<span class="erro">Adiciona pelo menos uma categoria de idade válida.</span>';
     return;
   }
 
@@ -194,7 +255,7 @@ async function criarEvento() {
     const resp = await fetch('/admin/eventos', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ senha, nome, codigo, data_evento, valor_inscricao })
+      body: JSON.stringify({ senha, nome, codigo, data_evento, valor_inscricao, categorias })
     });
     const dados = await resp.json();
 
@@ -204,6 +265,8 @@ async function criarEvento() {
       document.getElementById('codigoCriar').value = '';
       document.getElementById('dataCriar').value = '';
       document.getElementById('valorCriar').value = '';
+      document.getElementById('listaCategorias').innerHTML = '';
+      adicionarCategoria();
     } else {
       resultado.innerHTML = `<span class="erro">❌ ${dados.erro || 'Não foi possível criar.'}</span>`;
     }
@@ -293,11 +356,12 @@ async function carregarInscritos() {
 
     resultado.innerHTML = `
       <table>
-        <tr><th>Nome</th><th>Idade</th><th>Sexo</th><th>Peso</th><th>Tag</th></tr>
+        <tr><th>Nome</th><th>Idade</th><th>Categoria</th><th>Sexo</th><th>Peso</th><th>Tag</th></tr>
         ${inscritos.map(i => `
           <tr>
             <td>${i.nome}</td>
             <td>${i.idade}</td>
+            <td>${i.categoria_nome || '⚠️ sem categoria'}</td>
             <td>${i.sexo || '-'}</td>
             <td>${i.peso_kg ? i.peso_kg + 'kg' : '-'}</td>
             <td>${i.tag_epc || '⚠️ sem tag'}</td>
