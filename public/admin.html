@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Admin — PontoCerto</title>
+<style>
+  body {
+    background: #0f1115;
+    color: #f3ede4;
+    font-family: -apple-system, Arial, sans-serif;
+    display: flex;
+    justify-content: center;
+    padding: 40px 16px;
+  }
+  .card {
+    background: #1a1d24;
+    border: 1px solid #2c3038;
+    border-radius: 16px;
+    padding: 28px;
+    max-width: 560px;
+    width: 100%;
+  }
+  h1 { font-size: 20px; margin: 0 0 20px; }
+  .tabs { display: flex; gap: 8px; margin-bottom: 20px; flex-wrap: wrap; }
+  .tab {
+    flex: 1;
+    min-width: 100px;
+    padding: 10px;
+    text-align: center;
+    border-radius: 10px;
+    background: #0f1115;
+    border: 1px solid #2c3038;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 700;
+    color: #9a9ba3;
+  }
+  .tab.active { background: #ff6a3d; color: #1a0f14; border-color: #ff6a3d; }
+  .painel { display: none; }
+  .painel.active { display: block; }
+  label { display: block; font-size: 13px; margin: 16px 0 6px; color: #9a9ba3; }
+  input, select {
+    width: 100%;
+    padding: 12px;
+    border-radius: 10px;
+    border: 1px solid #2c3038;
+    background: #0f1115;
+    color: #f3ede4;
+    font-size: 15px;
+    box-sizing: border-box;
+    font-family: inherit;
+  }
+  button.acao {
+    width: 100%;
+    margin-top: 22px;
+    padding: 14px;
+    border: none;
+    border-radius: 12px;
+    background: #ff6a3d;
+    color: #1a0f14;
+    font-weight: 800;
+    font-size: 14.5px;
+    cursor: pointer;
+  }
+  button.acao:disabled { opacity: 0.6; }
+  #resultadoCriar, #resultadoInscritos { margin-top: 18px; font-size: 13.5px; line-height: 1.6; }
+  .ok { color: #4ade80; }
+  .erro { color: #f87171; }
+
+  .evento-item {
+    background: #0f1115;
+    border: 1px solid #2c3038;
+    border-radius: 10px;
+    padding: 12px 14px;
+    margin-bottom: 8px;
+    cursor: pointer;
+  }
+  .evento-item:hover { border-color: #ff6a3d; }
+  .evento-item.selecionado { border-color: #ff6a3d; background: #201a16; }
+  .evento-nome { font-weight: 700; font-size: 14px; }
+  .evento-meta { color: #9a9ba3; font-size: 11.5px; margin-top: 3px; }
+  .evento-badge {
+    display: inline-block;
+    font-size: 10.5px;
+    font-weight: 700;
+    padding: 2px 8px;
+    border-radius: 6px;
+    margin-left: 8px;
+  }
+  .badge-ativo { background: #4ade8033; color: #4ade80; }
+  .badge-encerrado { background: #f8717133; color: #f87171; }
+
+  .filtros-row { display: flex; gap: 10px; margin-top: 16px; }
+  .filtros-row > div { flex: 1; }
+
+  table { width: 100%; border-collapse: collapse; margin-top: 16px; font-size: 12.5px; }
+  th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid #2c3038; }
+  th { color: #9a9ba3; font-size: 11px; text-transform: uppercase; }
+</style>
+</head>
+<body>
+  <div class="card">
+    <h1>🏁 Admin — PontoCerto</h1>
+
+    <div class="tabs">
+      <div class="tab active" id="tabCriar" onclick="mudarAba('criar')">➕ Criar evento</div>
+      <div class="tab" id="tabInscritos" onclick="mudarAba('inscritos')">📋 Ver inscritos</div>
+    </div>
+
+    <!-- ABA: CRIAR EVENTO -->
+    <div class="painel active" id="painelCriar">
+      <label>Senha</label>
+      <input type="password" id="senhaCriar" placeholder="Senha do painel">
+
+      <label>Nome do evento *</label>
+      <input type="text" id="nomeCriar" placeholder="Ex: Corrida de Cláudio 2026">
+
+      <label>Código do evento *</label>
+      <input type="text" id="codigoCriar" placeholder="Ex: CLD2026" style="text-transform:uppercase;">
+
+      <label>Data da corrida *</label>
+      <input type="date" id="dataCriar">
+
+      <label>Valor da inscrição (R$) *</label>
+      <input type="number" id="valorCriar" placeholder="Ex: 50.00" step="0.01">
+
+      <button class="acao" id="btnCriar" onclick="criarEvento()">Criar evento</button>
+
+      <div id="resultadoCriar"></div>
+    </div>
+
+    <!-- ABA: VER INSCRITOS -->
+    <div class="painel" id="painelInscritos">
+      <label>Senha</label>
+      <input type="password" id="senhaInscritos" placeholder="Senha do painel">
+      <button class="acao" style="margin-top:14px;" onclick="carregarEventos()">🔄 Carregar eventos</button>
+
+      <div id="listaEventos" style="margin-top:16px;"></div>
+
+      <div id="filtrosBox" style="display:none;">
+        <div class="filtros-row">
+          <div>
+            <label>Idade mínima</label>
+            <input type="number" id="faixaMin" placeholder="Ex: 18">
+          </div>
+          <div>
+            <label>Idade máxima</label>
+            <input type="number" id="faixaMax" placeholder="Ex: 29">
+          </div>
+        </div>
+        <label>Sexo</label>
+        <select id="filtroSexo">
+          <option value="">Todos</option>
+          <option value="M">Masculino</option>
+          <option value="F">Feminino</option>
+        </select>
+
+        <button class="acao" onclick="carregarInscritos()">Filtrar inscritos</button>
+      </div>
+
+      <div id="resultadoInscritos"></div>
+    </div>
+  </div>
+
+<script>
+let eventoSelecionadoId = null;
+
+function mudarAba(aba) {
+  document.getElementById('tabCriar').classList.toggle('active', aba === 'criar');
+  document.getElementById('tabInscritos').classList.toggle('active', aba === 'inscritos');
+  document.getElementById('painelCriar').classList.toggle('active', aba === 'criar');
+  document.getElementById('painelInscritos').classList.toggle('active', aba === 'inscritos');
+}
+
+async function criarEvento() {
+  const senha = document.getElementById('senhaCriar').value.trim();
+  const nome = document.getElementById('nomeCriar').value.trim();
+  const codigo = document.getElementById('codigoCriar').value.trim().toUpperCase();
+  const data_evento = document.getElementById('dataCriar').value;
+  const valor_inscricao = document.getElementById('valorCriar').value;
+  const resultado = document.getElementById('resultadoCriar');
+  const btn = document.getElementById('btnCriar');
+
+  if (!senha || !nome || !codigo || !data_evento || !valor_inscricao) {
+    resultado.innerHTML = '<span class="erro">Preenche todos os campos obrigatórios.</span>';
+    return;
+  }
+
+  btn.disabled = true;
+  resultado.textContent = 'Criando...';
+
+  try {
+    const resp = await fetch('/admin/eventos', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ senha, nome, codigo, data_evento, valor_inscricao })
+    });
+    const dados = await resp.json();
+
+    if (resp.ok) {
+      resultado.innerHTML = `<span class="ok">✅ Evento "${dados.nome}" criado! Código: <b>${dados.codigo}</b></span>`;
+      document.getElementById('nomeCriar').value = '';
+      document.getElementById('codigoCriar').value = '';
+      document.getElementById('dataCriar').value = '';
+      document.getElementById('valorCriar').value = '';
+    } else {
+      resultado.innerHTML = `<span class="erro">❌ ${dados.erro || 'Não foi possível criar.'}</span>`;
+    }
+  } catch (e) {
+    resultado.innerHTML = '<span class="erro">❌ Erro de conexão com o servidor.</span>';
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function carregarEventos() {
+  const senha = document.getElementById('senhaInscritos').value.trim();
+  const container = document.getElementById('listaEventos');
+  if (!senha) {
+    container.innerHTML = '<span class="erro">Preenche a senha.</span>';
+    return;
+  }
+
+  container.textContent = 'Carregando...';
+
+  try {
+    const resp = await fetch('/admin/eventos/listar', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ senha })
+    });
+    const eventos = await resp.json();
+
+    if (!resp.ok) {
+      container.innerHTML = `<span class="erro">❌ ${eventos.erro || 'Erro ao carregar.'}</span>`;
+      return;
+    }
+
+    if (eventos.length === 0) {
+      container.innerHTML = '<span style="color:#9a9ba3;">Nenhum evento criado ainda.</span>';
+      return;
+    }
+
+    container.innerHTML = eventos.map(e => `
+      <div class="evento-item" onclick="selecionarEvento(${e.id}, this)">
+        <div class="evento-nome">${e.nome}
+          <span class="evento-badge ${e.ativo ? 'badge-ativo' : 'badge-encerrado'}">${e.ativo ? 'ABERTO' : 'ENCERRADO'}</span>
+        </div>
+        <div class="evento-meta">${e.codigo} · ${new Date(e.data_evento).toLocaleDateString('pt-BR')} · ${e.total_pagos} pago(s)</div>
+      </div>
+    `).join('');
+  } catch (e) {
+    container.innerHTML = '<span class="erro">❌ Erro de conexão com o servidor.</span>';
+  }
+}
+
+function selecionarEvento(id, elemento) {
+  eventoSelecionadoId = id;
+  document.querySelectorAll('.evento-item').forEach(el => el.classList.remove('selecionado'));
+  elemento.classList.add('selecionado');
+  document.getElementById('filtrosBox').style.display = 'block';
+  carregarInscritos();
+}
+
+async function carregarInscritos() {
+  if (!eventoSelecionadoId) return;
+  const senha = document.getElementById('senhaInscritos').value.trim();
+  const faixa_min = document.getElementById('faixaMin').value || undefined;
+  const faixa_max = document.getElementById('faixaMax').value || undefined;
+  const sexo = document.getElementById('filtroSexo').value || undefined;
+  const resultado = document.getElementById('resultadoInscritos');
+
+  resultado.textContent = 'Carregando...';
+
+  try {
+    const resp = await fetch(`/admin/eventos/${eventoSelecionadoId}/inscritos`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ senha, faixa_min, faixa_max, sexo })
+    });
+    const inscritos = await resp.json();
+
+    if (!resp.ok) {
+      resultado.innerHTML = `<span class="erro">❌ ${inscritos.erro || 'Erro ao carregar.'}</span>`;
+      return;
+    }
+
+    if (inscritos.length === 0) {
+      resultado.innerHTML = '<span style="color:#9a9ba3;">Nenhum inscrito pago com esse filtro.</span>';
+      return;
+    }
+
+    resultado.innerHTML = `
+      <table>
+        <tr><th>Nome</th><th>Idade</th><th>Sexo</th><th>Peso</th><th>Tag</th></tr>
+        ${inscritos.map(i => `
+          <tr>
+            <td>${i.nome}</td>
+            <td>${i.idade}</td>
+            <td>${i.sexo || '-'}</td>
+            <td>${i.peso_kg ? i.peso_kg + 'kg' : '-'}</td>
+            <td>${i.tag_epc || '⚠️ sem tag'}</td>
+          </tr>
+        `).join('')}
+      </table>
+      <div style="margin-top:10px; color:#9a9ba3;">${inscritos.length} inscrito(s) encontrado(s)</div>
+    `;
+  } catch (e) {
+    resultado.innerHTML = '<span class="erro">❌ Erro de conexão com o servidor.</span>';
+  }
+}
+</script>
+</body>
+</html>
