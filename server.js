@@ -497,6 +497,52 @@ app.post('/admin/eventos/:id/resultados', async (req, res) => {
   }
 });
 
+// Registra uma leitura de RFID — largada ou chegada, dependendo do modo
+// que o admin escolheu no painel operacional. Usada tanto pela simulação
+// manual (testes sem hardware) quanto, no futuro, pelo ESP32 de verdade
+// mandando a leitura real da antena.
+app.post('/admin/eventos/:id/leitura-rfid', async (req, res) => {
+  const { id } = req.params;
+  const { senha, tag_epc, modo } = req.body;
+  if (senha !== ADMIN_PASSWORD) return res.status(401).json({ erro: 'Senha incorreta.' });
+  if (!tag_epc || !['largada', 'chegada'].includes(modo)) {
+    return res.status(400).json({ erro: 'Informe tag_epc e modo (largada ou chegada).' });
+  }
+
+  try {
+    const inscricao = await pool.query(
+      `SELECT i.id, a.nome FROM inscricoes i
+       JOIN atletas a ON a.id = i.atleta_id
+       WHERE i.evento_id = $1 AND i.tag_epc = $2 AND i.pagamento_status = 'pago'`,
+      [id, tag_epc]
+    );
+
+    if (inscricao.rows.length === 0) {
+      return res.status(404).json({ erro: 'Nenhum inscrito pago encontrado com essa tag nesse evento.' });
+    }
+
+    const coluna = modo === 'largada' ? 'hora_largada' : 'hora_chegada';
+
+    // Só grava se ainda não tiver essa hora registrada — evita que uma
+    // segunda passagem pelo mesmo ponto sobrescreva o horário já certo.
+    const result = await pool.query(
+      `UPDATE inscricoes SET ${coluna} = NOW()
+       WHERE id = $1 AND ${coluna} IS NULL
+       RETURNING ${coluna} AS horario`,
+      [inscricao.rows[0].id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(409).json({ erro: `Esse atleta já tem ${modo} registrada.` });
+    }
+
+    res.json({ nome: inscricao.rows[0].nome, horario: result.rows[0].horario });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ erro: 'Erro ao registrar leitura.' });
+  }
+});
+
 app.post('/admin/inscricoes/:id/vincular-tag', async (req, res) => {
   const { id } = req.params;
   const { senha, tag_epc } = req.body;

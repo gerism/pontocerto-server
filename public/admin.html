@@ -139,6 +139,7 @@
       <div class="tab active" id="tabCriar" onclick="mudarAba('criar')">➕ Criar evento</div>
       <div class="tab" id="tabInscritos" onclick="mudarAba('inscritos')">📋 Ver inscritos</div>
       <div class="tab" id="tabResultados" onclick="mudarAba('resultados')">🏆 Resultados</div>
+      <div class="tab" id="tabSimular" onclick="mudarAba('simular')">🧪 Simular RFID</div>
     </div>
 
     <!-- ABA: CRIAR EVENTO -->
@@ -209,6 +210,42 @@
       <div id="listaEventosResultados" style="margin-top:16px;"></div>
       <div id="resultadoResultados"></div>
     </div>
+    <!-- ABA: SIMULAR RFID (testes sem hardware) -->
+    <div class="painel" id="painelSimular">
+      <p style="color:#9a9ba3; font-size:12.5px; line-height:1.6; margin-bottom:16px;">
+        Digite um código qualquer pra simular a tag (ex: "TESTE001") — sem precisar de leitor ou antena de verdade. Serve pra testar o fluxo completo antes do RFID chegar.
+      </p>
+
+      <label>Senha</label>
+      <input type="password" id="senhaSimular" placeholder="Senha do painel">
+
+      <label>Evento</label>
+      <div id="listaEventosSimular" style="margin-top:8px;"></div>
+      <button class="acao" style="margin-top:8px; background:#1a1d24; color:#f3ede4; border:1px solid #2c3038;" onclick="carregarEventosSimular()">🔄 Carregar eventos</button>
+
+      <label>Nº do inscrito (veja em "Ver inscritos")</label>
+      <input type="number" id="inscricaoIdSimular" placeholder="Ex: 1">
+
+      <label>Código da tag (fictício)</label>
+      <input type="text" id="tagSimular" placeholder="Ex: TESTE001">
+
+      <button class="acao" onclick="vincularTagSimulada()">Vincular tag ao inscrito</button>
+
+      <div style="height:1px; background:#2c3038; margin:24px 0;"></div>
+
+      <label>Modo de leitura</label>
+      <select id="modoSimular">
+        <option value="largada">Largada</option>
+        <option value="chegada">Chegada</option>
+      </select>
+
+      <label>Código da tag lida</label>
+      <input type="text" id="tagLeituraSimular" placeholder="Ex: TESTE001">
+
+      <button class="acao" onclick="simularLeitura()">Simular leitura da tag</button>
+
+      <div id="resultadoSimular"></div>
+    </div>
   </div>
 
 <script>
@@ -219,9 +256,11 @@ function mudarAba(aba) {
   document.getElementById('tabCriar').classList.toggle('active', aba === 'criar');
   document.getElementById('tabInscritos').classList.toggle('active', aba === 'inscritos');
   document.getElementById('tabResultados').classList.toggle('active', aba === 'resultados');
+  document.getElementById('tabSimular').classList.toggle('active', aba === 'simular');
   document.getElementById('painelCriar').classList.toggle('active', aba === 'criar');
   document.getElementById('painelInscritos').classList.toggle('active', aba === 'inscritos');
   document.getElementById('painelResultados').classList.toggle('active', aba === 'resultados');
+  document.getElementById('painelSimular').classList.toggle('active', aba === 'simular');
 }
 
 function adicionarCategoria(nome = '', min = '', max = '') {
@@ -563,6 +602,104 @@ function renderizarCategoriaSelecionada() {
       `).join('')}
     </div>
   `;
+}
+
+// ============================================
+// SIMULAR RFID (testes sem hardware)
+// ============================================
+let eventoSelecionadoSimular = null;
+
+async function carregarEventosSimular() {
+  const senha = document.getElementById('senhaSimular').value.trim();
+  const container = document.getElementById('listaEventosSimular');
+  if (!senha) {
+    container.innerHTML = '<span class="erro">Preenche a senha.</span>';
+    return;
+  }
+  container.textContent = 'Carregando...';
+
+  try {
+    const resp = await fetch('/admin/eventos/listar', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ senha })
+    });
+    const eventos = await resp.json();
+    if (!resp.ok) {
+      container.innerHTML = `<span class="erro">❌ ${eventos.erro || 'Erro ao carregar.'}</span>`;
+      return;
+    }
+    container.innerHTML = eventos.map(e => `
+      <div class="evento-item" onclick="selecionarEventoSimular(${e.id}, this)">
+        <div class="evento-nome">${e.nome}</div>
+        <div class="evento-meta">${e.codigo} · ${e.total_pagos} pago(s)</div>
+      </div>
+    `).join('');
+  } catch (e) {
+    container.innerHTML = '<span class="erro">❌ Erro de conexão com o servidor.</span>';
+  }
+}
+
+function selecionarEventoSimular(id, elemento) {
+  eventoSelecionadoSimular = id;
+  document.querySelectorAll('#listaEventosSimular .evento-item').forEach(el => el.classList.remove('selecionado'));
+  elemento.classList.add('selecionado');
+}
+
+async function vincularTagSimulada() {
+  const senha = document.getElementById('senhaSimular').value.trim();
+  const inscricaoId = document.getElementById('inscricaoIdSimular').value.trim();
+  const tag = document.getElementById('tagSimular').value.trim();
+  const resultado = document.getElementById('resultadoSimular');
+
+  if (!senha || !inscricaoId || !tag) {
+    resultado.innerHTML = '<span class="erro">Preenche senha, nº do inscrito e código da tag.</span>';
+    return;
+  }
+
+  try {
+    const resp = await fetch(`/admin/inscricoes/${inscricaoId}/vincular-tag`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ senha, tag_epc: tag })
+    });
+    const dados = await resp.json();
+    if (resp.ok) {
+      resultado.innerHTML = `<span class="ok">✅ Tag "${tag}" vinculada à inscrição #${inscricaoId}.</span>`;
+    } else {
+      resultado.innerHTML = `<span class="erro">❌ ${dados.erro || 'Não foi possível vincular.'}</span>`;
+    }
+  } catch (e) {
+    resultado.innerHTML = '<span class="erro">❌ Erro de conexão com o servidor.</span>';
+  }
+}
+
+async function simularLeitura() {
+  const senha = document.getElementById('senhaSimular').value.trim();
+  const tag = document.getElementById('tagLeituraSimular').value.trim();
+  const modo = document.getElementById('modoSimular').value;
+  const resultado = document.getElementById('resultadoSimular');
+
+  if (!senha || !tag || !eventoSelecionadoSimular) {
+    resultado.innerHTML = '<span class="erro">Preenche a senha, escolhe o evento na lista acima, e digita o código da tag.</span>';
+    return;
+  }
+
+  try {
+    const resp = await fetch(`/admin/eventos/${eventoSelecionadoSimular}/leitura-rfid`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ senha, tag_epc: tag, modo })
+    });
+    const dados = await resp.json();
+    if (resp.ok) {
+      resultado.innerHTML = `<span class="ok">✅ Leitura registrada: ${dados.nome} — ${modo} às ${new Date(dados.horario).toLocaleTimeString('pt-BR')}</span>`;
+    } else {
+      resultado.innerHTML = `<span class="erro">❌ ${dados.erro || 'Não foi possível registrar a leitura.'}</span>`;
+    }
+  } catch (e) {
+    resultado.innerHTML = '<span class="erro">❌ Erro de conexão com o servidor.</span>';
+  }
 }
 </script>
 </body>
