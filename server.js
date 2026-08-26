@@ -191,6 +191,7 @@ app.post('/eventos/:eventoId/inscrever', async (req, res) => {
         payment_method_id: 'pix',
         payer: { email: payer_email },
         external_reference: `inscricao_${inscricao.id}`,
+        notification_url: 'https://pontocerto-server-production.up.railway.app/webhook-pagamento-evento',
       }),
     });
 
