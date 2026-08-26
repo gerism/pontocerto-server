@@ -1,318 +1,587 @@
-// src/screens/CadastroAtleta.tsx
-//
-// Cadastro/edição dos dados pessoais do atleta. Esses dados são
-// permanentes (não recriados a cada evento) — o atleta preenche uma vez
-// e pode editar (principalmente peso) sempre que quiser.
+require('dotenv').config();
+const express = require('express');
+const cors = require('cors');
+const { Pool } = require('pg');
 
-import React, { useState, useEffect } from 'react';
-import {
-  View,
-  Text,
-  TextInput,
-  StyleSheet,
-  TouchableOpacity,
-  ScrollView,
-  ActivityIndicator,
-  Alert,
-} from 'react-native';
-import DeviceInfo from 'react-native-device-info';
-import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import type { RootStackParamList } from '../navigation/AppNavigator';
-import { buscarMeuAtleta, criarAtleta, editarAtleta } from '../services/api';
-import { colors } from '../theme/colors';
+const app = express();
+app.use(cors());
+app.use(express.json());
+app.use(express.static(require('path').join(__dirname, 'public')));
 
-type Props = NativeStackScreenProps<RootStackParamList, 'CadastroAtleta'>;
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: { rejectUnauthorized: false },
+});
 
-// Máscara simples de CPF: 000.000.000-00
-function formatarCPF(valor: string) {
-  const digitos = valor.replace(/\D/g, '').slice(0, 11);
-  return digitos
-    .replace(/(\d{3})(\d)/, '$1.$2')
-    .replace(/(\d{3})(\d)/, '$1.$2')
-    .replace(/(\d{3})(\d{1,2})$/, '$1-$2');
-}
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
 
-// Máscara simples de data: 00/00/0000
-function formatarData(valor: string) {
-  const digitos = valor.replace(/\D/g, '').slice(0, 8);
-  return digitos
-    .replace(/(\d{2})(\d)/, '$1/$2')
-    .replace(/(\d{2})(\d{4})$/, '$1/$2');
-}
+// ============================================
+// ATLETAS
+// ============================================
 
-// Converte "DD/MM/AAAA" pra "AAAA-MM-DD" (formato que o Postgres espera)
-function dataParaISO(dataBR: string) {
-  const [dia, mes, ano] = dataBR.split('/');
-  if (!dia || !mes || !ano || ano.length < 4) return null;
-  return `${ano}-${mes}-${dia}`;
-}
+app.post('/atletas', async (req, res) => {
+  const { device_id, nome, cpf, email, data_nascimento, peso_kg, sexo, telefone } = req.body;
 
-export default function CadastroAtleta({ navigation }: Props) {
-  const [carregando, setCarregando] = useState(true);
-  const [salvando, setSalvando] = useState(false);
-  const [atletaId, setAtletaId] = useState<number | null>(null);
-  const [deviceId, setDeviceId] = useState('');
-
-  const [nome, setNome] = useState('');
-  const [cpf, setCpf] = useState('');
-  const [email, setEmail] = useState('');
-  const [dataNascimento, setDataNascimento] = useState('');
-  const [pesoKg, setPesoKg] = useState('');
-  const [sexo, setSexo] = useState<'M' | 'F' | null>(null);
-  const [telefone, setTelefone] = useState('');
-
-  const modoEdicao = atletaId !== null;
-
-  useEffect(() => {
-    (async () => {
-      try {
-        const id = await DeviceInfo.getUniqueId();
-        setDeviceId(id);
-
-        const atleta = await buscarMeuAtleta(id);
-        if (atleta) {
-          setAtletaId(atleta.id);
-          setNome(atleta.nome);
-          setCpf(formatarCPF(atleta.cpf));
-          setEmail(atleta.email);
-          // converte AAAA-MM-DD (vindo do banco) pra DD/MM/AAAA (exibição)
-          const [ano, mes, dia] = atleta.data_nascimento.split('-');
-          setDataNascimento(`${dia}/${mes}/${ano}`);
-          setPesoKg(atleta.peso_kg ? String(atleta.peso_kg) : '');
-          setSexo(atleta.sexo || null);
-          setTelefone(atleta.telefone);
-        }
-      } catch (e) {
-        console.error('[CadastroAtleta] Erro ao carregar cadastro existente:', e);
-      } finally {
-        setCarregando(false);
-      }
-    })();
-  }, []);
-
-  const validarESalvar = async () => {
-    if (!nome.trim()) {
-      Alert.alert('Campo obrigatório', 'Digite seu nome completo.');
-      return;
-    }
-    if (!modoEdicao && cpf.replace(/\D/g, '').length !== 11) {
-      Alert.alert('CPF inválido', 'Digite um CPF válido com 11 dígitos.');
-      return;
-    }
-    if (!email.trim() || !email.includes('@')) {
-      Alert.alert('Email inválido', 'Digite um email válido — é usado pra gerar o pagamento Pix da inscrição.');
-      return;
-    }
-    const dataISO = dataParaISO(dataNascimento);
-    if (!dataISO) {
-      Alert.alert('Data inválida', 'Digite sua data de nascimento no formato DD/MM/AAAA.');
-      return;
-    }
-    if (!telefone.trim()) {
-      Alert.alert('Campo obrigatório', 'Digite seu telefone.');
-      return;
-    }
-
-    setSalvando(true);
-    try {
-      if (modoEdicao) {
-        await editarAtleta(atletaId!, {
-          device_id: deviceId,
-          nome: nome.trim(),
-          email: email.trim(),
-          data_nascimento: dataISO,
-          peso_kg: pesoKg ? parseFloat(pesoKg) : undefined,
-          sexo: sexo || undefined,
-          telefone: telefone.trim(),
-        });
-        Alert.alert('Pronto', 'Seus dados foram atualizados.');
-      } else {
-        const novoAtleta = await criarAtleta({
-          device_id: deviceId,
-          nome: nome.trim(),
-          cpf: cpf.replace(/\D/g, ''),
-          email: email.trim(),
-          data_nascimento: dataISO,
-          peso_kg: pesoKg ? parseFloat(pesoKg) : undefined,
-          sexo: sexo || undefined,
-          telefone: telefone.trim(),
-        });
-        setAtletaId(novoAtleta.id);
-        Alert.alert('Cadastro criado', 'Agora você já pode se inscrever em um evento.');
-      }
-      navigation.goBack();
-    } catch (e: any) {
-      console.error('[CadastroAtleta] Erro ao salvar:', e);
-      Alert.alert('Erro', e?.message || 'Não foi possível salvar seu cadastro. Tente de novo.');
-    } finally {
-      setSalvando(false);
-    }
-  };
-
-  if (carregando) {
-    return (
-      <View style={[styles.container, styles.center]}>
-        <ActivityIndicator color={colors.spotlight} />
-      </View>
-    );
+  if (!device_id || !nome || !cpf || !email || !data_nascimento || !telefone) {
+    return res.status(400).json({ erro: 'Campos obrigatórios faltando' });
   }
 
-  return (
-    <ScrollView style={styles.container} contentContainerStyle={{ padding: 20, paddingBottom: 40, paddingTop: 60 }}>
-      <TouchableOpacity style={styles.botaoVoltar} onPress={() => navigation.goBack()}>
-        <Text style={styles.botaoVoltarTexto}>←</Text>
-      </TouchableOpacity>
+  try {
+    const result = await pool.query(
+      `INSERT INTO atletas (device_id, nome, cpf, email, data_nascimento, peso_kg, sexo, telefone)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
+      [device_id, nome, cpf, email, data_nascimento, peso_kg || null, sexo || null, telefone]
+    );
+    res.json(result.rows[0]);
+  } catch (err) {
+    if (err.code === '23505') {
+      return res.status(409).json({ erro: 'Já existe um cadastro com esse CPF ou nesse aparelho' });
+    }
+    console.error(err);
+    res.status(500).json({ erro: 'Erro ao cadastrar atleta' });
+  }
+});
 
-      <Text style={styles.titulo}>{modoEdicao ? 'Meus dados' : 'Criar cadastro'}</Text>
-      <Text style={styles.subtitulo}>
-        {modoEdicao
-          ? 'Mantenha seus dados atualizados, principalmente o peso.'
-          : 'Preencha seus dados pra poder se inscrever nos eventos.'}
-      </Text>
+app.put('/atletas/:id', async (req, res) => {
+  const { id } = req.params;
+  const { device_id, nome, email, data_nascimento, peso_kg, sexo, telefone } = req.body;
 
-      <Text style={styles.label}>Nome completo</Text>
-      <TextInput style={styles.input} value={nome} onChangeText={setNome} placeholder="Seu nome completo" placeholderTextColor={colors.muted} />
+  if (!device_id) return res.status(400).json({ erro: 'device_id obrigatório' });
 
-      <Text style={styles.label}>CPF</Text>
-      <TextInput
-        style={[styles.input, modoEdicao && styles.inputDesabilitado]}
-        value={cpf}
-        onChangeText={(v) => setCpf(formatarCPF(v))}
-        placeholder="000.000.000-00"
-        placeholderTextColor={colors.muted}
-        keyboardType="number-pad"
-        maxLength={14}
-        editable={!modoEdicao}
-      />
-      {modoEdicao && <Text style={styles.avisoTravado}>CPF não pode ser alterado</Text>}
+  try {
+    const result = await pool.query(
+      `UPDATE atletas SET
+        nome = COALESCE($1, nome),
+        email = COALESCE($2, email),
+        data_nascimento = COALESCE($3, data_nascimento),
+        peso_kg = COALESCE($4, peso_kg),
+        sexo = COALESCE($5, sexo),
+        telefone = COALESCE($6, telefone),
+        atualizado_em = NOW()
+       WHERE id = $7 AND device_id = $8
+       RETURNING *`,
+      [nome, email, data_nascimento, peso_kg, sexo, telefone, id, device_id]
+    );
+    if (result.rows.length === 0) {
+      return res.status(403).json({ erro: 'Não autorizado a editar esse cadastro' });
+    }
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ erro: 'Erro ao editar cadastro' });
+  }
+});
 
-      <Text style={styles.label}>Email</Text>
-      <TextInput
-        style={styles.input}
-        value={email}
-        onChangeText={setEmail}
-        placeholder="seuemail@exemplo.com"
-        placeholderTextColor={colors.muted}
-        keyboardType="email-address"
-        autoCapitalize="none"
-      />
-      <Text style={styles.avisoTravado}>Usado pra gerar o pagamento Pix na hora de se inscrever</Text>
+app.get('/atletas/meu', async (req, res) => {
+  const { device_id } = req.query;
+  if (!device_id) return res.status(400).json({ erro: 'device_id obrigatório' });
 
-      <Text style={styles.label}>Data de nascimento</Text>
-      <TextInput
-        style={styles.input}
-        value={dataNascimento}
-        onChangeText={(v) => setDataNascimento(formatarData(v))}
-        placeholder="DD/MM/AAAA"
-        placeholderTextColor={colors.muted}
-        keyboardType="number-pad"
-        maxLength={10}
-      />
-      {modoEdicao && (
-        <Text style={styles.avisoTravado}>
-          Só corrija se foi digitada errada — isso muda sua categoria nos próximos eventos.
-        </Text>
-      )}
+  try {
+    const result = await pool.query('SELECT * FROM atletas WHERE device_id = $1', [device_id]);
+    res.json(result.rows[0] || null);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ erro: 'Erro ao buscar cadastro' });
+  }
+});
 
-      <Text style={styles.label}>Peso (kg)</Text>
-      <TextInput
-        style={styles.input}
-        value={pesoKg}
-        onChangeText={setPesoKg}
-        placeholder="Ex: 72"
-        placeholderTextColor={colors.muted}
-        keyboardType="decimal-pad"
-      />
+// ============================================
+// EVENTOS (públicas, pro app do atleta)
+// ============================================
 
-      <Text style={styles.label}>Sexo</Text>
-      <View style={styles.linhaBotoes}>
-        <TouchableOpacity
-          style={[styles.botaoOpcao, sexo === 'M' && styles.botaoOpcaoAtivo]}
-          onPress={() => setSexo('M')}
-        >
-          <Text style={[styles.botaoOpcaoTexto, sexo === 'M' && styles.botaoOpcaoTextoAtivo]}>Masculino</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[styles.botaoOpcao, sexo === 'F' && styles.botaoOpcaoAtivo]}
-          onPress={() => setSexo('F')}
-        >
-          <Text style={[styles.botaoOpcaoTexto, sexo === 'F' && styles.botaoOpcaoTextoAtivo]}>Feminino</Text>
-        </TouchableOpacity>
-      </View>
+app.get('/eventos/ativos', async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT id, nome, codigo, data_evento, valor_inscricao
+       FROM eventos
+       WHERE ativo = true
+       ORDER BY data_evento ASC`
+    );
+    res.json(result.rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ erro: 'Erro ao listar eventos' });
+  }
+});
 
-      <Text style={styles.label}>Telefone</Text>
-      <TextInput
-        style={styles.input}
-        value={telefone}
-        onChangeText={setTelefone}
-        placeholder="(37) 99999-9999"
-        placeholderTextColor={colors.muted}
-        keyboardType="phone-pad"
-      />
+app.get('/eventos/codigo/:codigo', async (req, res) => {
+  const { codigo } = req.params;
+  try {
+    const result = await pool.query(
+      'SELECT * FROM eventos WHERE codigo = $1 AND ativo = true',
+      [codigo.toUpperCase()]
+    );
+    if (result.rows.length === 0) {
+      return res.status(404).json({ erro: 'Código de evento inválido ou evento encerrado' });
+    }
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ erro: 'Erro ao buscar evento' });
+  }
+});
 
-      <TouchableOpacity style={styles.botaoSalvar} onPress={validarESalvar} disabled={salvando}>
-        {salvando ? (
-          <ActivityIndicator color="#0b1f10" />
-        ) : (
-          <Text style={styles.botaoSalvarTexto}>{modoEdicao ? 'Salvar alterações' : 'Criar cadastro'}</Text>
-        )}
-      </TouchableOpacity>
-    </ScrollView>
+app.get('/eventos/:id/categorias', async (req, res) => {
+  const { id } = req.params;
+  try {
+    const result = await pool.query(
+      `SELECT * FROM categorias_evento WHERE evento_id = $1 ORDER BY idade_min ASC`,
+      [id]
+    );
+    res.json(result.rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ erro: 'Erro ao buscar categorias.' });
+  }
+});
+
+// ============================================
+// INSCRIÇÕES E PAGAMENTO (Mercado Pago Pix)
+// ============================================
+
+app.post('/eventos/:eventoId/inscrever', async (req, res) => {
+  const { eventoId } = req.params;
+  const { atleta_id } = req.body;
+
+  if (!atleta_id) {
+    return res.status(400).json({ erro: 'atleta_id é obrigatório' });
+  }
+
+  try {
+    const evento = await pool.query('SELECT * FROM eventos WHERE id = $1 AND ativo = true', [eventoId]);
+    if (evento.rows.length === 0) {
+      return res.status(404).json({ erro: 'Evento não encontrado ou encerrado' });
+    }
+
+    const atletaResult = await pool.query('SELECT email FROM atletas WHERE id = $1', [atleta_id]);
+    if (atletaResult.rows.length === 0) {
+      return res.status(404).json({ erro: 'Atleta não encontrado' });
+    }
+    const payer_email = atletaResult.rows[0].email;
+
+    const inscricaoExistente = await pool.query(
+      'SELECT * FROM inscricoes WHERE atleta_id = $1 AND evento_id = $2',
+      [atleta_id, eventoId]
+    );
+
+    let inscricao;
+    if (inscricaoExistente.rows.length > 0) {
+      inscricao = inscricaoExistente.rows[0];
+      if (inscricao.pagamento_status === 'pago') {
+        return res.status(409).json({ erro: 'Você já está inscrito e pagou esse evento' });
+      }
+    } else {
+      const novaInscricao = await pool.query(
+        `INSERT INTO inscricoes (atleta_id, evento_id, pagamento_status)
+         VALUES ($1, $2, 'pendente') RETURNING *`,
+        [atleta_id, eventoId]
+      );
+      inscricao = novaInscricao.rows[0];
+    }
+
+    const mpResponse = await fetch('https://api.mercadopago.com/v1/payments', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${process.env.MP_ACCESS_TOKEN}`,
+        'Content-Type': 'application/json',
+        'X-Idempotency-Key': `inscricao_${inscricao.id}_${Date.now()}`,
+      },
+      body: JSON.stringify({
+        transaction_amount: parseFloat(evento.rows[0].valor_inscricao),
+        description: `Inscrição - ${evento.rows[0].nome}`,
+        payment_method_id: 'pix',
+        payer: { email: payer_email },
+        external_reference: `inscricao_${inscricao.id}`,
+        notification_url: 'https://pontocerto-server-production.up.railway.app/webhook-pagamento-evento',
+      }),
+    });
+
+    const mpDados = await mpResponse.json();
+
+    if (!mpResponse.ok) {
+      console.error('Erro Mercado Pago:', mpDados);
+      return res.status(500).json({ erro: 'Erro ao gerar cobrança Pix' });
+    }
+
+    await pool.query(
+      'UPDATE inscricoes SET mp_payment_id = $1 WHERE id = $2',
+      [mpDados.id, inscricao.id]
+    );
+
+    res.json({
+      inscricao_id: inscricao.id,
+      qr_code: mpDados.point_of_interaction.transaction_data.qr_code,
+      qr_code_base64: mpDados.point_of_interaction.transaction_data.qr_code_base64,
+    });
+  } catch (err) {
+    console.error('Erro ao criar inscrição:', err);
+    res.status(500).json({ erro: 'Erro no servidor' });
+  }
+});
+
+app.post('/webhook-pagamento-evento', async (req, res) => {
+  try {
+    const paymentId = req.body?.data?.id;
+    if (!paymentId) return res.sendStatus(200);
+
+    const mpResponse = await fetch(`https://api.mercadopago.com/v1/payments/${paymentId}`, {
+      headers: { 'Authorization': `Bearer ${process.env.MP_ACCESS_TOKEN}` },
+    });
+    const pagamento = await mpResponse.json();
+
+    if (pagamento.status === 'approved') {
+      const inscricaoInfo = await pool.query(
+        `SELECT i.id, i.evento_id, DATE_PART('year', AGE(a.data_nascimento))::int AS idade
+         FROM inscricoes i
+         JOIN atletas a ON a.id = i.atleta_id
+         WHERE i.mp_payment_id = $1`,
+        [paymentId]
+      );
+
+      if (inscricaoInfo.rows.length > 0) {
+        const { id: inscricaoId, evento_id, idade } = inscricaoInfo.rows[0];
+
+        const categoria = await pool.query(
+          `SELECT id FROM categorias_evento
+           WHERE evento_id = $1 AND $2 BETWEEN idade_min AND idade_max
+           LIMIT 1`,
+          [evento_id, idade]
+        );
+        const categoriaId = categoria.rows[0]?.id || null;
+
+        await pool.query(
+          `UPDATE inscricoes SET pagamento_status = 'pago', categoria_id = $1 WHERE id = $2`,
+          [categoriaId, inscricaoId]
+        );
+
+        const atletaDaInscricao = await pool.query(
+          `SELECT atleta_id FROM inscricoes WHERE id = $1`,
+          [inscricaoId]
+        );
+        if (atletaDaInscricao.rows.length > 0) {
+          await limparInscricoesAntigas(atletaDaInscricao.rows[0].atleta_id);
+        }
+      }
+    }
+
+    res.sendStatus(200);
+  } catch (err) {
+    console.error('Erro no webhook de pagamento:', err);
+    res.sendStatus(200);
+  }
+});
+
+async function limparInscricoesAntigas(atletaId) {
+  await pool.query(
+    `DELETE FROM inscricoes
+     WHERE atleta_id = $1
+     AND id NOT IN (
+       SELECT id FROM inscricoes
+       WHERE atleta_id = $1
+       ORDER BY criado_em DESC
+       LIMIT 5
+     )`,
+    [atletaId]
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.bg },
-  botaoVoltar: {
-    position: 'absolute',
-    top: 12,
-    left: 20,
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.line,
-    justifyContent: 'center',
-    alignItems: 'center',
-    zIndex: 10,
-  },
-  botaoVoltarTexto: { color: colors.cream, fontSize: 18 },
-  center: { justifyContent: 'center', alignItems: 'center' },
-  titulo: { color: colors.cream, fontFamily: 'Fraunces-SemiBold', fontSize: 24, marginBottom: 6 },
-  subtitulo: { color: colors.muted, fontSize: 13, lineHeight: 19, marginBottom: 24 },
-  label: { color: colors.muted, fontSize: 12.5, fontWeight: '600', marginBottom: 6, marginTop: 16 },
-  input: {
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.line,
-    borderRadius: 12,
-    paddingVertical: 13,
-    paddingHorizontal: 14,
-    fontSize: 15,
-    color: colors.cream,
-  },
-  inputDesabilitado: { opacity: 0.5 },
-  avisoTravado: { color: colors.muted, fontSize: 11, marginTop: 4 },
-  linhaBotoes: { flexDirection: 'row', gap: 10 },
-  botaoOpcao: {
-    flex: 1,
-    paddingVertical: 13,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: colors.line,
-    backgroundColor: colors.surface,
-    alignItems: 'center',
-  },
-  botaoOpcaoAtivo: { backgroundColor: colors.spotlight, borderColor: colors.spotlight },
-  botaoOpcaoTexto: { color: colors.cream, fontWeight: '600', fontSize: 13.5 },
-  botaoOpcaoTextoAtivo: { color: '#1a0f14' },
-  botaoSalvar: {
-    marginTop: 32,
-    backgroundColor: colors.success,
-    borderRadius: 14,
-    paddingVertical: 16,
-    alignItems: 'center',
-  },
-  botaoSalvarTexto: { color: '#0b1f10', fontWeight: '800', fontSize: 15 },
+app.get('/atletas/:id/inscricoes', async (req, res) => {
+  const { id } = req.params;
+  try {
+    const result = await pool.query(
+      `SELECT i.*, i.tempo_total::text AS tempo_total, e.nome AS evento_nome, e.codigo AS evento_codigo, e.data_evento,
+         c.nome AS categoria_nome,
+         (SELECT COUNT(*) + 1 FROM inscricoes i2
+          WHERE i2.evento_id = i.evento_id AND i2.pagamento_status = 'pago'
+            AND i2.hora_chegada IS NOT NULL AND i2.tempo_total < i.tempo_total
+         ) AS posicao_geral,
+         (SELECT COUNT(*) + 1 FROM inscricoes i3
+          WHERE i3.evento_id = i.evento_id AND i3.categoria_id = i.categoria_id
+            AND i3.pagamento_status = 'pago'
+            AND i3.hora_chegada IS NOT NULL AND i3.tempo_total < i.tempo_total
+         ) AS posicao_categoria
+       FROM inscricoes i
+       JOIN eventos e ON e.id = i.evento_id
+       LEFT JOIN categorias_evento c ON c.id = i.categoria_id
+       WHERE i.atleta_id = $1
+       ORDER BY i.criado_em DESC
+       LIMIT 5`,
+      [id]
+    );
+    res.json(result.rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ erro: 'Erro ao buscar inscrições' });
+  }
 });
+
+// ============================================
+// ADMIN (organizador)
+// ============================================
+
+app.post('/admin/eventos', async (req, res) => {
+  const { senha, nome, codigo, data_evento, valor_inscricao, categorias } = req.body;
+
+  if (senha !== ADMIN_PASSWORD) {
+    return res.status(401).json({ erro: 'Senha incorreta.' });
+  }
+  if (!nome || !codigo || !data_evento || !valor_inscricao) {
+    return res.status(400).json({ erro: 'Preenche nome, código, data e valor.' });
+  }
+  if (!Array.isArray(categorias) || categorias.length === 0) {
+    return res.status(400).json({ erro: 'Defina pelo menos uma categoria de idade.' });
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    const eventoResult = await client.query(
+      `INSERT INTO eventos (nome, codigo, data_evento, valor_inscricao)
+       VALUES ($1, $2, $3, $4) RETURNING *`,
+      [nome, codigo.toUpperCase(), data_evento, valor_inscricao]
+    );
+    const evento = eventoResult.rows[0];
+
+    for (const cat of categorias) {
+      await client.query(
+        `INSERT INTO categorias_evento (evento_id, nome, idade_min, idade_max)
+         VALUES ($1, $2, $3, $4)`,
+        [evento.id, cat.nome, cat.idade_min, cat.idade_max]
+      );
+    }
+
+    await client.query('COMMIT');
+    res.json(evento);
+  } catch (err) {
+    await client.query('ROLLBACK');
+    if (err.code === '23505') {
+      return res.status(409).json({ erro: 'Já existe um evento com esse código.' });
+    }
+    console.error(err);
+    res.status(500).json({ erro: 'Erro ao criar evento.' });
+  } finally {
+    client.release();
+  }
+});
+
+app.post('/admin/eventos/listar', async (req, res) => {
+  const { senha } = req.body;
+  if (senha !== ADMIN_PASSWORD) return res.status(401).json({ erro: 'Senha incorreta.' });
+
+  try {
+    const result = await pool.query(
+      `SELECT e.*,
+        (SELECT COUNT(*) FROM inscricoes i WHERE i.evento_id = e.id AND i.pagamento_status = 'pago') AS total_pagos
+       FROM eventos e
+       ORDER BY e.data_evento DESC`
+    );
+    res.json(result.rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ erro: 'Erro ao listar eventos.' });
+  }
+});
+
+app.post('/admin/eventos/:id/alternar-ativo', async (req, res) => {
+  const { id } = req.params;
+  const { senha } = req.body;
+  if (senha !== ADMIN_PASSWORD) return res.status(401).json({ erro: 'Senha incorreta.' });
+
+  try {
+    const result = await pool.query(
+      `UPDATE eventos SET ativo = NOT ativo WHERE id = $1 RETURNING *`,
+      [id]
+    );
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ erro: 'Erro ao atualizar evento.' });
+  }
+});
+
+// Exclui um evento por completo — junto vão as categorias e inscrições
+// dele (ON DELETE CASCADE já cuida disso no banco). Use com cuidado: se
+// já teve gente pagando, o dinheiro continua tendo sido recebido no
+// Mercado Pago, só o registro no seu sistema é que some.
+app.post('/admin/eventos/:id/excluir', async (req, res) => {
+  const { id } = req.params;
+  const { senha } = req.body;
+  if (senha !== ADMIN_PASSWORD) return res.status(401).json({ erro: 'Senha incorreta.' });
+
+  try {
+    const result = await pool.query('DELETE FROM eventos WHERE id = $1 RETURNING nome', [id]);
+    if (result.rows.length === 0) {
+      return res.status(404).json({ erro: 'Evento não encontrado.' });
+    }
+    res.json({ sucesso: true, nome: result.rows[0].nome });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ erro: 'Erro ao excluir evento.' });
+  }
+});
+
+app.post('/admin/eventos/:id/inscritos', async (req, res) => {
+  const { id } = req.params;
+  const { senha, faixa_min, faixa_max, sexo } = req.body;
+  if (senha !== ADMIN_PASSWORD) return res.status(401).json({ erro: 'Senha incorreta.' });
+
+  const cond = ['i.evento_id = $1', `i.pagamento_status = 'pago'`];
+  const params = [id];
+
+  if (sexo) {
+    params.push(sexo);
+    cond.push(`a.sexo = $${params.length}`);
+  }
+  if (faixa_min) {
+    params.push(faixa_min);
+    cond.push(`DATE_PART('year', AGE(a.data_nascimento)) >= $${params.length}`);
+  }
+  if (faixa_max) {
+    params.push(faixa_max);
+    cond.push(`DATE_PART('year', AGE(a.data_nascimento)) <= $${params.length}`);
+  }
+
+  try {
+    const result = await pool.query(
+      `SELECT
+         a.nome, a.cpf, a.telefone, a.peso_kg, a.sexo,
+         DATE_PART('year', AGE(a.data_nascimento))::int AS idade,
+         c.nome AS categoria_nome,
+         i.id AS inscricao_id, i.tag_epc, i.hora_largada, i.hora_chegada, i.tempo_total
+       FROM inscricoes i
+       JOIN atletas a ON a.id = i.atleta_id
+       LEFT JOIN categorias_evento c ON c.id = i.categoria_id
+       WHERE ${cond.join(' AND ')}
+       ORDER BY a.nome ASC`,
+      params
+    );
+    res.json(result.rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ erro: 'Erro ao listar inscritos.' });
+  }
+});
+
+// Resultado final do evento: ranking geral (todos, do mais rápido pro mais
+// lento) e ranking dentro de cada categoria de idade. Só considera quem
+// já tem largada E chegada registradas (senão não tem tempo pra ranquear).
+app.post('/admin/eventos/:id/resultados', async (req, res) => {
+  const { id } = req.params;
+  const { senha } = req.body;
+  if (senha !== ADMIN_PASSWORD) return res.status(401).json({ erro: 'Senha incorreta.' });
+
+  try {
+    const result = await pool.query(
+      `SELECT
+         a.nome, a.sexo,
+         DATE_PART('year', AGE(a.data_nascimento))::int AS idade,
+         c.nome AS categoria_nome,
+         i.categoria_id,
+         i.tempo_total::text AS tempo_total,
+         ROW_NUMBER() OVER (ORDER BY i.tempo_total ASC) AS posicao_geral,
+         ROW_NUMBER() OVER (PARTITION BY i.categoria_id ORDER BY i.tempo_total ASC) AS posicao_categoria
+       FROM inscricoes i
+       JOIN atletas a ON a.id = i.atleta_id
+       LEFT JOIN categorias_evento c ON c.id = i.categoria_id
+       WHERE i.evento_id = $1
+         AND i.pagamento_status = 'pago'
+         AND i.hora_largada IS NOT NULL
+         AND i.hora_chegada IS NOT NULL
+       ORDER BY i.tempo_total ASC`,
+      [id]
+    );
+    res.json(result.rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ erro: 'Erro ao calcular resultados.' });
+  }
+});
+
+// Registra uma leitura de RFID — largada ou chegada, dependendo do modo
+// que o admin escolheu no painel operacional. Usada tanto pela simulação
+// manual (testes sem hardware) quanto, no futuro, pelo ESP32 de verdade
+// mandando a leitura real da antena.
+app.post('/admin/eventos/:id/leitura-rfid', async (req, res) => {
+  const { id } = req.params;
+  const { senha, tag_epc, modo } = req.body;
+  if (senha !== ADMIN_PASSWORD) return res.status(401).json({ erro: 'Senha incorreta.' });
+  if (!tag_epc || !['largada', 'chegada'].includes(modo)) {
+    return res.status(400).json({ erro: 'Informe tag_epc e modo (largada ou chegada).' });
+  }
+
+  try {
+    const inscricao = await pool.query(
+      `SELECT i.id, a.nome FROM inscricoes i
+       JOIN atletas a ON a.id = i.atleta_id
+       WHERE i.evento_id = $1 AND i.tag_epc = $2 AND i.pagamento_status = 'pago'`,
+      [id, tag_epc]
+    );
+
+    if (inscricao.rows.length === 0) {
+      return res.status(404).json({ erro: 'Nenhum inscrito pago encontrado com essa tag nesse evento.' });
+    }
+
+    const coluna = modo === 'largada' ? 'hora_largada' : 'hora_chegada';
+
+    // Só grava se ainda não tiver essa hora registrada — evita que uma
+    // segunda passagem pelo mesmo ponto sobrescreva o horário já certo.
+    const result = await pool.query(
+      `UPDATE inscricoes SET ${coluna} = NOW()
+       WHERE id = $1 AND ${coluna} IS NULL
+       RETURNING ${coluna} AS horario`,
+      [inscricao.rows[0].id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(409).json({ erro: `Esse atleta já tem ${modo} registrada.` });
+    }
+
+    res.json({ nome: inscricao.rows[0].nome, horario: result.rows[0].horario });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ erro: 'Erro ao registrar leitura.' });
+  }
+});
+
+app.post('/admin/inscricoes/:id/vincular-tag', async (req, res) => {
+  const { id } = req.params;
+  const { senha, tag_epc } = req.body;
+  if (senha !== ADMIN_PASSWORD) return res.status(401).json({ erro: 'Senha incorreta.' });
+
+  try {
+    const result = await pool.query(
+      `UPDATE inscricoes SET tag_epc = $1 WHERE id = $2 RETURNING *`,
+      [tag_epc, id]
+    );
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ erro: 'Erro ao vincular tag.' });
+  }
+});
+
+// Exclui o cadastro de um atleta pelo CPF — útil principalmente pra você
+// mesmo apagar cadastros de teste sem precisar mexer direto no banco.
+app.post('/admin/atletas/excluir-por-cpf', async (req, res) => {
+  const { senha, cpf } = req.body;
+  if (senha !== ADMIN_PASSWORD) return res.status(401).json({ erro: 'Senha incorreta.' });
+  if (!cpf) return res.status(400).json({ erro: 'Informe o CPF.' });
+
+  try {
+    const result = await pool.query(
+      'DELETE FROM atletas WHERE cpf = $1 RETURNING nome',
+      [cpf.replace(/\D/g, '')]
+    );
+    if (result.rows.length === 0) {
+      return res.status(404).json({ erro: 'Nenhum atleta encontrado com esse CPF.' });
+    }
+    res.json({ sucesso: true, nome: result.rows[0].nome });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ erro: 'Erro ao excluir atleta.' });
+  }
+});
+
+const PORT = process.env.PORT || 3001;
+app.listen(PORT, () => console.log(`PontoCerto server rodando na porta ${PORT}`));
