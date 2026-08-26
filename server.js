@@ -288,7 +288,7 @@ app.get('/atletas/:id/inscricoes', async (req, res) => {
   const { id } = req.params;
   try {
     const result = await pool.query(
-      `SELECT i.*, e.nome AS evento_nome, e.codigo AS evento_codigo, e.data_evento,
+      `SELECT i.*, i.tempo_total::text AS tempo_total, e.nome AS evento_nome, e.codigo AS evento_codigo, e.data_evento,
          c.nome AS categoria_nome,
          (SELECT COUNT(*) + 1 FROM inscricoes i2
           WHERE i2.evento_id = i.evento_id AND i2.pagamento_status = 'pago'
@@ -477,7 +477,7 @@ app.post('/admin/eventos/:id/resultados', async (req, res) => {
          DATE_PART('year', AGE(a.data_nascimento))::int AS idade,
          c.nome AS categoria_nome,
          i.categoria_id,
-         i.tempo_total,
+         i.tempo_total::text AS tempo_total,
          ROW_NUMBER() OVER (ORDER BY i.tempo_total ASC) AS posicao_geral,
          ROW_NUMBER() OVER (PARTITION BY i.categoria_id ORDER BY i.tempo_total ASC) AS posicao_categoria
        FROM inscricoes i
