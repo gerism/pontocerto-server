@@ -20,7 +20,7 @@ const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
 // ============================================
 
 app.post('/atletas', async (req, res) => {
-  const { device_id, nome, cpf, email, data_nascimento, peso_kg, sexo, telefone } = req.body;
+  const { device_id, nome, cpf, email, data_nascimento, sexo, telefone } = req.body;
 
   if (!device_id || !nome || !cpf || !email || !data_nascimento || !telefone) {
     return res.status(400).json({ erro: 'Campos obrigatórios faltando' });
@@ -28,9 +28,9 @@ app.post('/atletas', async (req, res) => {
 
   try {
     const result = await pool.query(
-      `INSERT INTO atletas (device_id, nome, cpf, email, data_nascimento, peso_kg, sexo, telefone)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
-      [device_id, nome, cpf, email, data_nascimento, peso_kg || null, sexo || null, telefone]
+      `INSERT INTO atletas (device_id, nome, cpf, email, data_nascimento, sexo, telefone)
+       VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
+      [device_id, nome, cpf, email, data_nascimento, sexo || null, telefone]
     );
     res.json(result.rows[0]);
   } catch (err) {
@@ -44,7 +44,7 @@ app.post('/atletas', async (req, res) => {
 
 app.put('/atletas/:id', async (req, res) => {
   const { id } = req.params;
-  const { device_id, nome, email, data_nascimento, peso_kg, sexo, telefone } = req.body;
+  const { device_id, nome, email, data_nascimento, sexo, telefone } = req.body;
 
   if (!device_id) return res.status(400).json({ erro: 'device_id obrigatório' });
 
@@ -54,13 +54,12 @@ app.put('/atletas/:id', async (req, res) => {
         nome = COALESCE($1, nome),
         email = COALESCE($2, email),
         data_nascimento = COALESCE($3, data_nascimento),
-        peso_kg = COALESCE($4, peso_kg),
-        sexo = COALESCE($5, sexo),
-        telefone = COALESCE($6, telefone),
+        sexo = COALESCE($4, sexo),
+        telefone = COALESCE($5, telefone),
         atualizado_em = NOW()
-       WHERE id = $7 AND device_id = $8
+       WHERE id = $6 AND device_id = $7
        RETURNING *`,
-      [nome, email, data_nascimento, peso_kg, sexo, telefone, id, device_id]
+      [nome, email, data_nascimento, sexo, telefone, id, device_id]
     );
     if (result.rows.length === 0) {
       return res.status(403).json({ erro: 'Não autorizado a editar esse cadastro' });
@@ -77,7 +76,11 @@ app.get('/atletas/meu', async (req, res) => {
   if (!device_id) return res.status(400).json({ erro: 'device_id obrigatório' });
 
   try {
-    const result = await pool.query('SELECT * FROM atletas WHERE device_id = $1', [device_id]);
+    const result = await pool.query(
+      `SELECT id, device_id, nome, cpf, email, data_nascimento::text AS data_nascimento, sexo, telefone, criado_em, atualizado_em
+       FROM atletas WHERE device_id = $1`,
+      [device_id]
+    );
     res.json(result.rows[0] || null);
   } catch (err) {
     console.error(err);
@@ -445,7 +448,7 @@ app.post('/admin/eventos/:id/inscritos', async (req, res) => {
   try {
     const result = await pool.query(
       `SELECT
-         a.nome, a.cpf, a.telefone, a.peso_kg, a.sexo,
+         a.nome, a.cpf, a.telefone, a.sexo,
          DATE_PART('year', AGE(a.data_nascimento))::int AS idade,
          c.nome AS categoria_nome,
          i.id AS inscricao_id, i.tag_epc, i.hora_largada, i.hora_chegada, i.tempo_total

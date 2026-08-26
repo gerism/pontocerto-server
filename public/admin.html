@@ -450,7 +450,7 @@ async function carregarInscritos() {
 
     resultado.innerHTML = `
       <table>
-        <tr><th>Nº</th><th>Nome</th><th>Idade</th><th>Categoria</th><th>Sexo</th><th>Peso</th><th>Tag</th></tr>
+        <tr><th>Nº</th><th>Nome</th><th>Idade</th><th>Categoria</th><th>Sexo</th><th>Tag</th></tr>
         ${inscritos.map(i => `
           <tr>
             <td>${i.inscricao_id}</td>
@@ -458,7 +458,6 @@ async function carregarInscritos() {
             <td>${i.idade}</td>
             <td>${i.categoria_nome || '⚠️ sem categoria'}</td>
             <td>${i.sexo || '-'}</td>
-            <td>${i.peso_kg ? i.peso_kg + 'kg' : '-'}</td>
             <td>${i.tag_epc || '⚠️ sem tag'}</td>
           </tr>
         `).join('')}
