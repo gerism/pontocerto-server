@@ -18,7 +18,7 @@
     border: 1px solid #2c3038;
     border-radius: 16px;
     padding: 28px;
-    max-width: 560px;
+    max-width: 780px;
     width: 100%;
   }
   h1 { font-size: 20px; margin: 0 0 20px; }
@@ -463,50 +463,65 @@ async function carregarResultados() {
       return;
     }
 
-    // Ranking geral (já vem ordenado do servidor por tempo_total)
-    let html = `
-      <h2 style="font-size:14px; margin-top:20px; color:#e8a33d;">🏆 Geral</h2>
-      <table>
-        <tr><th>Pos.</th><th>Nome</th><th>Tempo</th><th>Categoria</th></tr>
-        ${dados.map(r => `
-          <tr>
-            <td>${r.posicao_geral}º</td>
-            <td>${r.nome}</td>
-            <td>${r.tempo_total}</td>
-            <td>${r.categoria_nome || '-'}</td>
-          </tr>
-        `).join('')}
-      </table>
+    window.__resultadosAtuais = dados; // guarda pra reusar quando trocar a categoria no seletor
+
+    const categorias = [...new Set(dados.map(r => r.categoria_nome || 'Sem categoria'))];
+
+    resultado.innerHTML = `
+      <div style="display:flex; gap:16px; margin-top:16px;">
+        <div style="flex:1; min-width:0;">
+          <h2 style="font-size:14px; margin:0 0 10px; color:#e8a33d;">🏆 Geral</h2>
+          <div id="colunaGeral"></div>
+        </div>
+        <div style="flex:1; min-width:0;">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+            <h2 style="font-size:14px; margin:0; color:#e8a33d;">📌 Categoria</h2>
+            <select id="seletorCategoria" onchange="renderizarCategoriaSelecionada()" style="width:auto; padding:6px 8px; font-size:12px;">
+              ${categorias.map(c => `<option value="${c}">${c}</option>`).join('')}
+            </select>
+          </div>
+          <div id="colunaCategoria"></div>
+        </div>
+      </div>
     `;
 
-    // Agrupa por categoria pra mostrar ranking separado de cada uma
-    const porCategoria = {};
-    dados.forEach(r => {
-      const chave = r.categoria_nome || 'Sem categoria';
-      if (!porCategoria[chave]) porCategoria[chave] = [];
-      porCategoria[chave].push(r);
-    });
-
-    for (const [nomeCategoria, lista] of Object.entries(porCategoria)) {
-      html += `
-        <h2 style="font-size:14px; margin-top:20px; color:#e8a33d;">📌 ${nomeCategoria}</h2>
-        <table>
-          <tr><th>Pos.</th><th>Nome</th><th>Tempo</th></tr>
-          ${lista.map(r => `
-            <tr>
-              <td>${r.posicao_categoria}º</td>
-              <td>${r.nome}</td>
-              <td>${r.tempo_total}</td>
-            </tr>
-          `).join('')}
-        </table>
-      `;
-    }
-
-    resultado.innerHTML = html;
+    renderizarGeral(dados);
+    renderizarCategoriaSelecionada();
   } catch (e) {
     resultado.innerHTML = '<span class="erro">❌ Erro de conexão com o servidor.</span>';
   }
+}
+
+function renderizarGeral(dados) {
+  document.getElementById('colunaGeral').innerHTML = `
+    <div style="max-height:400px; overflow-y:auto;">
+      ${dados.map(r => `
+        <div style="display:flex; justify-content:space-between; padding:8px 4px; border-bottom:1px solid #362a41; font-size:12.5px;">
+          <span>${r.posicao_geral}º ${r.nome}</span>
+          <span style="color:#9a9ba3;">${r.tempo_total}</span>
+        </div>
+      `).join('')}
+    </div>
+  `;
+}
+
+function renderizarCategoriaSelecionada() {
+  const dados = window.__resultadosAtuais || [];
+  const categoriaEscolhida = document.getElementById('seletorCategoria').value;
+  const filtrados = dados
+    .filter(r => (r.categoria_nome || 'Sem categoria') === categoriaEscolhida)
+    .sort((a, b) => a.posicao_categoria - b.posicao_categoria);
+
+  document.getElementById('colunaCategoria').innerHTML = `
+    <div style="max-height:400px; overflow-y:auto;">
+      ${filtrados.map(r => `
+        <div style="display:flex; justify-content:space-between; padding:8px 4px; border-bottom:1px solid #362a41; font-size:12.5px;">
+          <span>${r.posicao_categoria}º ${r.nome}</span>
+          <span style="color:#9a9ba3;">${r.tempo_total}</span>
+        </div>
+      `).join('')}
+    </div>
+  `;
 }
 </script>
 </body>
