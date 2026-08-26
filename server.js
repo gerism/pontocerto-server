@@ -430,6 +430,41 @@ app.post('/admin/eventos/:id/inscritos', async (req, res) => {
   }
 });
 
+// Resultado final do evento: ranking geral (todos, do mais rápido pro mais
+// lento) e ranking dentro de cada categoria de idade. Só considera quem
+// já tem largada E chegada registradas (senão não tem tempo pra ranquear).
+app.post('/admin/eventos/:id/resultados', async (req, res) => {
+  const { id } = req.params;
+  const { senha } = req.body;
+  if (senha !== ADMIN_PASSWORD) return res.status(401).json({ erro: 'Senha incorreta.' });
+
+  try {
+    const result = await pool.query(
+      `SELECT
+         a.nome, a.sexo,
+         DATE_PART('year', AGE(a.data_nascimento))::int AS idade,
+         c.nome AS categoria_nome,
+         i.categoria_id,
+         i.tempo_total,
+         ROW_NUMBER() OVER (ORDER BY i.tempo_total ASC) AS posicao_geral,
+         ROW_NUMBER() OVER (PARTITION BY i.categoria_id ORDER BY i.tempo_total ASC) AS posicao_categoria
+       FROM inscricoes i
+       JOIN atletas a ON a.id = i.atleta_id
+       LEFT JOIN categorias_evento c ON c.id = i.categoria_id
+       WHERE i.evento_id = $1
+         AND i.pagamento_status = 'pago'
+         AND i.hora_largada IS NOT NULL
+         AND i.hora_chegada IS NOT NULL
+       ORDER BY i.tempo_total ASC`,
+      [id]
+    );
+    res.json(result.rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ erro: 'Erro ao calcular resultados.' });
+  }
+});
+
 app.post('/admin/inscricoes/:id/vincular-tag', async (req, res) => {
   const { id } = req.params;
   const { senha, tag_epc } = req.body;

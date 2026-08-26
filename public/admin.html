@@ -125,6 +125,7 @@
     <div class="tabs">
       <div class="tab active" id="tabCriar" onclick="mudarAba('criar')">➕ Criar evento</div>
       <div class="tab" id="tabInscritos" onclick="mudarAba('inscritos')">📋 Ver inscritos</div>
+      <div class="tab" id="tabResultados" onclick="mudarAba('resultados')">🏆 Resultados</div>
     </div>
 
     <!-- ABA: CRIAR EVENTO -->
@@ -184,6 +185,17 @@
 
       <div id="resultadoInscritos"></div>
     </div>
+    <!-- ABA: DENÚNCIAS removida — não se aplica ao PontoCerto -->
+
+    <!-- ABA: RESULTADOS -->
+    <div class="painel" id="painelResultados">
+      <label>Senha</label>
+      <input type="password" id="senhaResultados" placeholder="Senha do painel">
+      <button class="acao" style="margin-top:14px;" onclick="carregarEventosResultados()">🔄 Carregar eventos</button>
+
+      <div id="listaEventosResultados" style="margin-top:16px;"></div>
+      <div id="resultadoResultados"></div>
+    </div>
   </div>
 
 <script>
@@ -193,8 +205,10 @@ let contadorCategoria = 0;
 function mudarAba(aba) {
   document.getElementById('tabCriar').classList.toggle('active', aba === 'criar');
   document.getElementById('tabInscritos').classList.toggle('active', aba === 'inscritos');
+  document.getElementById('tabResultados').classList.toggle('active', aba === 'resultados');
   document.getElementById('painelCriar').classList.toggle('active', aba === 'criar');
   document.getElementById('painelInscritos').classList.toggle('active', aba === 'inscritos');
+  document.getElementById('painelResultados').classList.toggle('active', aba === 'resultados');
 }
 
 function adicionarCategoria(nome = '', min = '', max = '') {
@@ -370,6 +384,126 @@ async function carregarInscritos() {
       </table>
       <div style="margin-top:10px; color:#9a9ba3;">${inscritos.length} inscrito(s) encontrado(s)</div>
     `;
+  } catch (e) {
+    resultado.innerHTML = '<span class="erro">❌ Erro de conexão com o servidor.</span>';
+  }
+}
+
+// ============================================
+// RESULTADOS (ranking geral + por categoria)
+// ============================================
+let eventoSelecionadoResultados = null;
+
+async function carregarEventosResultados() {
+  const senha = document.getElementById('senhaResultados').value.trim();
+  const container = document.getElementById('listaEventosResultados');
+  if (!senha) {
+    container.innerHTML = '<span class="erro">Preenche a senha.</span>';
+    return;
+  }
+  container.textContent = 'Carregando...';
+
+  try {
+    const resp = await fetch('/admin/eventos/listar', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ senha })
+    });
+    const eventos = await resp.json();
+
+    if (!resp.ok) {
+      container.innerHTML = `<span class="erro">❌ ${eventos.erro || 'Erro ao carregar.'}</span>`;
+      return;
+    }
+    if (eventos.length === 0) {
+      container.innerHTML = '<span style="color:#9a9ba3;">Nenhum evento criado ainda.</span>';
+      return;
+    }
+
+    container.innerHTML = eventos.map(e => `
+      <div class="evento-item" onclick="selecionarEventoResultados(${e.id}, this)">
+        <div class="evento-nome">${e.nome}
+          <span class="evento-badge ${e.ativo ? 'badge-ativo' : 'badge-encerrado'}">${e.ativo ? 'ABERTO' : 'ENCERRADO'}</span>
+        </div>
+        <div class="evento-meta">${e.codigo} · ${new Date(e.data_evento).toLocaleDateString('pt-BR')} · ${e.total_pagos} pago(s)</div>
+      </div>
+    `).join('');
+  } catch (e) {
+    container.innerHTML = '<span class="erro">❌ Erro de conexão com o servidor.</span>';
+  }
+}
+
+function selecionarEventoResultados(id, elemento) {
+  eventoSelecionadoResultados = id;
+  document.querySelectorAll('#listaEventosResultados .evento-item').forEach(el => el.classList.remove('selecionado'));
+  elemento.classList.add('selecionado');
+  carregarResultados();
+}
+
+async function carregarResultados() {
+  if (!eventoSelecionadoResultados) return;
+  const senha = document.getElementById('senhaResultados').value.trim();
+  const resultado = document.getElementById('resultadoResultados');
+  resultado.textContent = 'Calculando resultados...';
+
+  try {
+    const resp = await fetch(`/admin/eventos/${eventoSelecionadoResultados}/resultados`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ senha })
+    });
+    const dados = await resp.json();
+
+    if (!resp.ok) {
+      resultado.innerHTML = `<span class="erro">❌ ${dados.erro || 'Erro ao carregar.'}</span>`;
+      return;
+    }
+    if (dados.length === 0) {
+      resultado.innerHTML = '<span style="color:#9a9ba3;">Nenhum resultado ainda — precisa ter largada e chegada registradas.</span>';
+      return;
+    }
+
+    // Ranking geral (já vem ordenado do servidor por tempo_total)
+    let html = `
+      <h2 style="font-size:14px; margin-top:20px; color:#e8a33d;">🏆 Geral</h2>
+      <table>
+        <tr><th>Pos.</th><th>Nome</th><th>Tempo</th><th>Categoria</th></tr>
+        ${dados.map(r => `
+          <tr>
+            <td>${r.posicao_geral}º</td>
+            <td>${r.nome}</td>
+            <td>${r.tempo_total}</td>
+            <td>${r.categoria_nome || '-'}</td>
+          </tr>
+        `).join('')}
+      </table>
+    `;
+
+    // Agrupa por categoria pra mostrar ranking separado de cada uma
+    const porCategoria = {};
+    dados.forEach(r => {
+      const chave = r.categoria_nome || 'Sem categoria';
+      if (!porCategoria[chave]) porCategoria[chave] = [];
+      porCategoria[chave].push(r);
+    });
+
+    for (const [nomeCategoria, lista] of Object.entries(porCategoria)) {
+      html += `
+        <h2 style="font-size:14px; margin-top:20px; color:#e8a33d;">📌 ${nomeCategoria}</h2>
+        <table>
+          <tr><th>Pos.</th><th>Nome</th><th>Tempo</th></tr>
+          ${lista.map(r => `
+            <tr>
+              <td>${r.posicao_categoria}º</td>
+              <td>${r.nome}</td>
+              <td>${r.tempo_total}</td>
+            </tr>
+          `).join('')}
+        </table>
+      `;
+    }
+
+    resultado.innerHTML = html;
   } catch (e) {
     resultado.innerHTML = '<span class="erro">❌ Erro de conexão com o servidor.</span>';
   }
