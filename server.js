@@ -183,6 +183,7 @@ app.post('/eventos/:eventoId/inscrever', async (req, res) => {
       headers: {
         'Authorization': `Bearer ${process.env.MP_ACCESS_TOKEN}`,
         'Content-Type': 'application/json',
+        'X-Idempotency-Key': `inscricao_${inscricao.id}_${Date.now()}`,
       },
       body: JSON.stringify({
         transaction_amount: parseFloat(evento.rows[0].valor_inscricao),
