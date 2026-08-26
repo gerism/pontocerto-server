@@ -88,6 +88,19 @@
     border-radius: 6px;
     margin-left: 8px;
   }
+  .btn-excluir-evento {
+    background: none;
+    border: 1px solid #f87171;
+    color: #f87171;
+    border-radius: 8px;
+    padding: 6px 10px;
+    font-size: 11px;
+    font-weight: 700;
+    cursor: pointer;
+    float: right;
+    margin-top: -4px;
+  }
+  .btn-excluir-evento:hover { background: #f87171; color: #1a0f14; }
   .badge-ativo { background: #4ade8033; color: #4ade80; }
   .badge-encerrado { background: #f8717133; color: #f87171; }
 
@@ -321,6 +334,7 @@ async function carregarEventos() {
 
     container.innerHTML = eventos.map(e => `
       <div class="evento-item" onclick="selecionarEvento(${e.id}, this)">
+        <button class="btn-excluir-evento" onclick="event.stopPropagation(); excluirEvento(${e.id}, '${e.nome.replace(/'/g, "\\'")}')">🗑️</button>
         <div class="evento-nome">${e.nome}
           <span class="evento-badge ${e.ativo ? 'badge-ativo' : 'badge-encerrado'}">${e.ativo ? 'ABERTO' : 'ENCERRADO'}</span>
         </div>
@@ -329,6 +343,33 @@ async function carregarEventos() {
     `).join('');
   } catch (e) {
     container.innerHTML = '<span class="erro">❌ Erro de conexão com o servidor.</span>';
+  }
+}
+
+async function excluirEvento(id, nome) {
+  const senha = document.getElementById('senhaInscritos').value.trim();
+  if (!senha) {
+    alert('Preenche a senha antes de excluir.');
+    return;
+  }
+  if (!confirm(`Tem certeza que quer excluir "${nome}"?\n\nIsso apaga o evento, suas categorias e todas as inscrições dele. Não pode ser desfeito.`)) return;
+
+  try {
+    const resp = await fetch(`/admin/eventos/${id}/excluir`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ senha })
+    });
+    const dados = await resp.json();
+
+    if (resp.ok) {
+      alert(`"${dados.nome}" foi excluído.`);
+      carregarEventos();
+    } else {
+      alert(`❌ ${dados.erro || 'Não foi possível excluir.'}`);
+    }
+  } catch (e) {
+    alert('❌ Erro de conexão com o servidor.');
   }
 }
 
