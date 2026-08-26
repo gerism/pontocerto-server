@@ -288,9 +288,20 @@ app.get('/atletas/:id/inscricoes', async (req, res) => {
   const { id } = req.params;
   try {
     const result = await pool.query(
-      `SELECT i.*, e.nome AS evento_nome, e.codigo AS evento_codigo, e.data_evento
+      `SELECT i.*, e.nome AS evento_nome, e.codigo AS evento_codigo, e.data_evento,
+         c.nome AS categoria_nome,
+         (SELECT COUNT(*) + 1 FROM inscricoes i2
+          WHERE i2.evento_id = i.evento_id AND i2.pagamento_status = 'pago'
+            AND i2.hora_chegada IS NOT NULL AND i2.tempo_total < i.tempo_total
+         ) AS posicao_geral,
+         (SELECT COUNT(*) + 1 FROM inscricoes i3
+          WHERE i3.evento_id = i.evento_id AND i3.categoria_id = i.categoria_id
+            AND i3.pagamento_status = 'pago'
+            AND i3.hora_chegada IS NOT NULL AND i3.tempo_total < i.tempo_total
+         ) AS posicao_categoria
        FROM inscricoes i
        JOIN eventos e ON e.id = i.evento_id
+       LEFT JOIN categorias_evento c ON c.id = i.categoria_id
        WHERE i.atleta_id = $1
        ORDER BY i.criado_em DESC
        LIMIT 5`,
@@ -388,6 +399,27 @@ app.post('/admin/eventos/:id/alternar-ativo', async (req, res) => {
   }
 });
 
+// Exclui um evento por completo — junto vão as categorias e inscrições
+// dele (ON DELETE CASCADE já cuida disso no banco). Use com cuidado: se
+// já teve gente pagando, o dinheiro continua tendo sido recebido no
+// Mercado Pago, só o registro no seu sistema é que some.
+app.post('/admin/eventos/:id/excluir', async (req, res) => {
+  const { id } = req.params;
+  const { senha } = req.body;
+  if (senha !== ADMIN_PASSWORD) return res.status(401).json({ erro: 'Senha incorreta.' });
+
+  try {
+    const result = await pool.query('DELETE FROM eventos WHERE id = $1 RETURNING nome', [id]);
+    if (result.rows.length === 0) {
+      return res.status(404).json({ erro: 'Evento não encontrado.' });
+    }
+    res.json({ sucesso: true, nome: result.rows[0].nome });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ erro: 'Erro ao excluir evento.' });
+  }
+});
+
 app.post('/admin/eventos/:id/inscritos', async (req, res) => {
   const { id } = req.params;
   const { senha, faixa_min, faixa_max, sexo } = req.body;
@@ -479,6 +511,28 @@ app.post('/admin/inscricoes/:id/vincular-tag', async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ erro: 'Erro ao vincular tag.' });
+  }
+});
+
+// Exclui o cadastro de um atleta pelo CPF — útil principalmente pra você
+// mesmo apagar cadastros de teste sem precisar mexer direto no banco.
+app.post('/admin/atletas/excluir-por-cpf', async (req, res) => {
+  const { senha, cpf } = req.body;
+  if (senha !== ADMIN_PASSWORD) return res.status(401).json({ erro: 'Senha incorreta.' });
+  if (!cpf) return res.status(400).json({ erro: 'Informe o CPF.' });
+
+  try {
+    const result = await pool.query(
+      'DELETE FROM atletas WHERE cpf = $1 RETURNING nome',
+      [cpf.replace(/\D/g, '')]
+    );
+    if (result.rows.length === 0) {
+      return res.status(404).json({ erro: 'Nenhum atleta encontrado com esse CPF.' });
+    }
+    res.json({ sucesso: true, nome: result.rows[0].nome });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ erro: 'Erro ao excluir atleta.' });
   }
 });
 
