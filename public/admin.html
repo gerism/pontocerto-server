@@ -450,9 +450,10 @@ async function carregarInscritos() {
 
     resultado.innerHTML = `
       <table>
-        <tr><th>Nome</th><th>Idade</th><th>Categoria</th><th>Sexo</th><th>Peso</th><th>Tag</th></tr>
+        <tr><th>Nº</th><th>Nome</th><th>Idade</th><th>Categoria</th><th>Sexo</th><th>Peso</th><th>Tag</th></tr>
         ${inscritos.map(i => `
           <tr>
+            <td>${i.inscricao_id}</td>
             <td>${i.nome}</td>
             <td>${i.idade}</td>
             <td>${i.categoria_nome || '⚠️ sem categoria'}</td>
