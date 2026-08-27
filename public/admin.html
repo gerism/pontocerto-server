@@ -116,9 +116,11 @@
     gap: 8px;
     align-items: center;
     margin-bottom: 8px;
+    flex-wrap: wrap;
   }
-  .categoria-linha input { flex: 1; }
-  .categoria-linha input.idade { max-width: 70px; }
+  .categoria-linha input { flex: 1; min-width: 90px; }
+  .categoria-linha input.idade { max-width: 70px; flex: none; }
+  .categoria-linha select.cat-sexo { flex: none; padding: 12px 8px; }
   .btn-remover-cat {
     background: none;
     border: 1px solid #f87171;
@@ -263,7 +265,7 @@ function mudarAba(aba) {
   document.getElementById('painelSimular').classList.toggle('active', aba === 'simular');
 }
 
-function adicionarCategoria(nome = '', min = '', max = '') {
+function adicionarCategoria(nome = '', min = '', max = '', sexo = '') {
   contadorCategoria++;
   const id = `cat${contadorCategoria}`;
   const div = document.createElement('div');
@@ -273,6 +275,11 @@ function adicionarCategoria(nome = '', min = '', max = '') {
     <input type="text" class="cat-nome" placeholder="Ex: 15 a 20 anos" value="${nome}">
     <input type="number" class="cat-min idade" placeholder="Min" value="${min}">
     <input type="number" class="cat-max idade" placeholder="Max" value="${max}">
+    <select class="cat-sexo" style="max-width:110px;">
+      <option value="" ${sexo === '' ? 'selected' : ''}>Ambos</option>
+      <option value="M" ${sexo === 'M' ? 'selected' : ''}>Masculino</option>
+      <option value="F" ${sexo === 'F' ? 'selected' : ''}>Feminino</option>
+    </select>
     <button type="button" class="btn-remover-cat" onclick="document.getElementById('${id}').remove()">✕</button>
   `;
   document.getElementById('listaCategorias').appendChild(div);
@@ -288,8 +295,9 @@ function coletarCategorias() {
     const nome = linha.querySelector('.cat-nome').value.trim();
     const idade_min = parseInt(linha.querySelector('.cat-min').value, 10);
     const idade_max = parseInt(linha.querySelector('.cat-max').value, 10);
+    const sexo = linha.querySelector('.cat-sexo').value || null;
     if (nome && !isNaN(idade_min) && !isNaN(idade_max)) {
-      categorias.push({ nome, idade_min, idade_max });
+      categorias.push({ nome, idade_min, idade_max, sexo });
     }
   }
   return categorias;
