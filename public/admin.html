@@ -113,20 +113,25 @@
 
   .categoria-linha {
     display: flex;
-    gap: 8px;
+    gap: 6px;
     align-items: center;
     margin-bottom: 8px;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
   }
-  .categoria-linha input { flex: 1; min-width: 90px; }
-  .categoria-linha input.idade { max-width: 70px; flex: none; }
-  .categoria-linha select.cat-sexo { flex: none; padding: 12px 8px; }
+  .categoria-linha input,
+  .categoria-linha select {
+    padding: 10px 6px;
+    font-size: 12.5px;
+  }
+  .categoria-linha input.cat-nome { flex: 1.4; min-width: 0; }
+  .categoria-linha input.idade { flex: 0.7; min-width: 0; }
+  .categoria-linha select.cat-sexo { flex: 1; min-width: 0; padding: 10px 4px; }
   .btn-remover-cat {
     background: none;
     border: 1px solid #f87171;
     color: #f87171;
     border-radius: 8px;
-    padding: 10px 12px;
+    padding: 8px 10px;
     font-size: 12px;
     cursor: pointer;
     flex-shrink: 0;
@@ -272,10 +277,10 @@ function adicionarCategoria(nome = '', min = '', max = '', sexo = '') {
   div.className = 'categoria-linha';
   div.id = id;
   div.innerHTML = `
-    <input type="text" class="cat-nome" placeholder="Ex: 15 a 20 anos" value="${nome}">
+    <input type="text" class="cat-nome" placeholder="Ex: 15-20a" value="${nome}">
     <input type="number" class="cat-min idade" placeholder="Min" value="${min}">
     <input type="number" class="cat-max idade" placeholder="Max" value="${max}">
-    <select class="cat-sexo" style="max-width:110px;">
+    <select class="cat-sexo">
       <option value="" ${sexo === '' ? 'selected' : ''}>Ambos</option>
       <option value="M" ${sexo === 'M' ? 'selected' : ''}>Masculino</option>
       <option value="F" ${sexo === 'F' ? 'selected' : ''}>Feminino</option>
