@@ -95,7 +95,7 @@ app.get('/atletas/meu', async (req, res) => {
 app.get('/eventos/ativos', async (req, res) => {
   try {
     const result = await pool.query(
-      `SELECT id, nome, codigo, data_evento, valor_inscricao
+      `SELECT id, nome, codigo, data_evento, valor_inscricao, oferece_camisa
        FROM eventos
        WHERE ativo = true
        ORDER BY data_evento ASC`
@@ -144,7 +144,7 @@ app.get('/eventos/:id/categorias', async (req, res) => {
 
 app.post('/eventos/:eventoId/inscrever', async (req, res) => {
   const { eventoId } = req.params;
-  const { atleta_id } = req.body;
+  const { atleta_id, quer_camisa, camisa_tipo, camisa_tamanho } = req.body;
 
   if (!atleta_id) {
     return res.status(400).json({ erro: 'atleta_id é obrigatório' });
@@ -154,6 +154,13 @@ app.post('/eventos/:eventoId/inscrever', async (req, res) => {
     const evento = await pool.query('SELECT * FROM eventos WHERE id = $1 AND ativo = true', [eventoId]);
     if (evento.rows.length === 0) {
       return res.status(404).json({ erro: 'Evento não encontrado ou encerrado' });
+    }
+
+    // Só aceita escolha de camisa se o evento realmente oferecer, e exige
+    // tipo/tamanho quando o atleta pediu camisa.
+    const querCamisaValida = evento.rows[0].oferece_camisa && !!quer_camisa;
+    if (querCamisaValida && (!camisa_tipo || !camisa_tamanho)) {
+      return res.status(400).json({ erro: 'Escolha o tipo e o tamanho da camisa.' });
     }
 
     const atletaResult = await pool.query('SELECT email FROM atletas WHERE id = $1', [atleta_id]);
@@ -173,11 +180,16 @@ app.post('/eventos/:eventoId/inscrever', async (req, res) => {
       if (inscricao.pagamento_status === 'pago') {
         return res.status(409).json({ erro: 'Você já está inscrito e pagou esse evento' });
       }
+      // Atualiza a escolha de camisa caso a pessoa tenha voltado e mudado de ideia
+      await pool.query(
+        `UPDATE inscricoes SET quer_camisa = $1, camisa_tipo = $2, camisa_tamanho = $3 WHERE id = $4`,
+        [querCamisaValida, querCamisaValida ? camisa_tipo : null, querCamisaValida ? camisa_tamanho : null, inscricao.id]
+      );
     } else {
       const novaInscricao = await pool.query(
-        `INSERT INTO inscricoes (atleta_id, evento_id, pagamento_status)
-         VALUES ($1, $2, 'pendente') RETURNING *`,
-        [atleta_id, eventoId]
+        `INSERT INTO inscricoes (atleta_id, evento_id, pagamento_status, quer_camisa, camisa_tipo, camisa_tamanho)
+         VALUES ($1, $2, 'pendente', $3, $4, $5) RETURNING *`,
+        [atleta_id, eventoId, querCamisaValida, querCamisaValida ? camisa_tipo : null, querCamisaValida ? camisa_tamanho : null]
       );
       inscricao = novaInscricao.rows[0];
     }
@@ -234,7 +246,7 @@ app.post('/webhook-pagamento-evento', async (req, res) => {
 
     if (pagamento.status === 'approved') {
       const inscricaoInfo = await pool.query(
-        `SELECT i.id, i.evento_id, DATE_PART('year', AGE(a.data_nascimento))::int AS idade
+        `SELECT i.id, i.evento_id, a.sexo, DATE_PART('year', AGE(a.data_nascimento))::int AS idade
          FROM inscricoes i
          JOIN atletas a ON a.id = i.atleta_id
          WHERE i.mp_payment_id = $1`,
@@ -242,13 +254,18 @@ app.post('/webhook-pagamento-evento', async (req, res) => {
       );
 
       if (inscricaoInfo.rows.length > 0) {
-        const { id: inscricaoId, evento_id, idade } = inscricaoInfo.rows[0];
+        const { id: inscricaoId, evento_id, idade, sexo } = inscricaoInfo.rows[0];
 
+        // Procura primeiro uma categoria específica pro sexo do atleta;
+        // se não achar (evento só com categorias mistas), cai pra uma
+        // categoria sem sexo definido (mista) que bata com a idade.
         const categoria = await pool.query(
           `SELECT id FROM categorias_evento
            WHERE evento_id = $1 AND $2 BETWEEN idade_min AND idade_max
+             AND (sexo = $3 OR sexo IS NULL)
+           ORDER BY sexo NULLS LAST
            LIMIT 1`,
-          [evento_id, idade]
+          [evento_id, idade, sexo]
         );
         const categoriaId = categoria.rows[0]?.id || null;
 
@@ -323,7 +340,7 @@ app.get('/atletas/:id/inscricoes', async (req, res) => {
 // ============================================
 
 app.post('/admin/eventos', async (req, res) => {
-  const { senha, nome, codigo, data_evento, valor_inscricao, categorias } = req.body;
+  const { senha, nome, codigo, data_evento, valor_inscricao, categorias, oferece_camisa } = req.body;
 
   if (senha !== ADMIN_PASSWORD) {
     return res.status(401).json({ erro: 'Senha incorreta.' });
@@ -340,17 +357,17 @@ app.post('/admin/eventos', async (req, res) => {
     await client.query('BEGIN');
 
     const eventoResult = await client.query(
-      `INSERT INTO eventos (nome, codigo, data_evento, valor_inscricao)
-       VALUES ($1, $2, $3, $4) RETURNING *`,
-      [nome, codigo.toUpperCase(), data_evento, valor_inscricao]
+      `INSERT INTO eventos (nome, codigo, data_evento, valor_inscricao, oferece_camisa)
+       VALUES ($1, $2, $3, $4, $5) RETURNING *`,
+      [nome, codigo.toUpperCase(), data_evento, valor_inscricao, !!oferece_camisa]
     );
     const evento = eventoResult.rows[0];
 
     for (const cat of categorias) {
       await client.query(
-        `INSERT INTO categorias_evento (evento_id, nome, idade_min, idade_max)
-         VALUES ($1, $2, $3, $4)`,
-        [evento.id, cat.nome, cat.idade_min, cat.idade_max]
+        `INSERT INTO categorias_evento (evento_id, nome, idade_min, idade_max, sexo)
+         VALUES ($1, $2, $3, $4, $5)`,
+        [evento.id, cat.nome, cat.idade_min, cat.idade_max, cat.sexo || null]
       );
     }
 
@@ -451,7 +468,8 @@ app.post('/admin/eventos/:id/inscritos', async (req, res) => {
          a.nome, a.cpf, a.telefone, a.sexo,
          DATE_PART('year', AGE(a.data_nascimento))::int AS idade,
          c.nome AS categoria_nome,
-         i.id AS inscricao_id, i.tag_epc, i.hora_largada, i.hora_chegada, i.tempo_total
+         i.id AS inscricao_id, i.tag_epc, i.hora_largada, i.hora_chegada, i.tempo_total,
+         i.quer_camisa, i.camisa_tipo, i.camisa_tamanho
        FROM inscricoes i
        JOIN atletas a ON a.id = i.atleta_id
        LEFT JOIN categorias_evento c ON c.id = i.categoria_id
