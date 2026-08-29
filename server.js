@@ -469,7 +469,7 @@ app.post('/admin/eventos/:id/inscritos', async (req, res) => {
          DATE_PART('year', AGE(a.data_nascimento))::int AS idade,
          c.nome AS categoria_nome,
          i.id AS inscricao_id, i.tag_epc, i.hora_largada, i.hora_chegada, i.tempo_total,
-         i.quer_camisa, i.camisa_tipo, i.camisa_tamanho
+         i.quer_camisa, i.camisa_tipo, i.camisa_tamanho, i.kit_entregue
        FROM inscricoes i
        JOIN atletas a ON a.id = i.atleta_id
        LEFT JOIN categorias_evento c ON c.id = i.categoria_id
@@ -579,6 +579,25 @@ app.post('/admin/inscricoes/:id/vincular-tag', async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ erro: 'Erro ao vincular tag.' });
+  }
+});
+
+// Marca (ou desmarca) que o kit — tag + camisa — já foi entregue pro
+// atleta, pra você acompanhar quem já está pronto pra corrida.
+app.post('/admin/inscricoes/:id/kit-entregue', async (req, res) => {
+  const { id } = req.params;
+  const { senha, kit_entregue } = req.body;
+  if (senha !== ADMIN_PASSWORD) return res.status(401).json({ erro: 'Senha incorreta.' });
+
+  try {
+    const result = await pool.query(
+      `UPDATE inscricoes SET kit_entregue = $1 WHERE id = $2 RETURNING *`,
+      [!!kit_entregue, id]
+    );
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ erro: 'Erro ao atualizar status do kit.' });
   }
 });
 
