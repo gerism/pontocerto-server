@@ -301,10 +301,24 @@ function alternarSenha(campoId, botao) {
   }
 }
 
-async function alternarKitEntregue(inscricaoId, marcado) {
+async function alternarKitEntregue(inscricaoId, checkbox) {
+  const marcado = checkbox.checked;
+
+  // Só pede confirmação quando está DESmarcando — marcar é uma ação
+  // segura e rápida, mas desmarcar sem querer é mais fácil de passar
+  // batido depois.
+  if (!marcado) {
+    const confirmou = confirm('Tem certeza que quer desmarcar? Isso indica que o kit ainda não foi entregue.');
+    if (!confirmou) {
+      checkbox.checked = true; // volta pro estado marcado, já que cancelou
+      return;
+    }
+  }
+
   const senha = document.getElementById('senhaInscritos').value.trim();
   if (!senha) {
     alert('Preenche a senha antes de marcar.');
+    checkbox.checked = !marcado; // desfaz a mudança visual, já que não vai salvar
     return;
   }
 
@@ -544,7 +558,7 @@ async function carregarInscritos() {
             <td>${i.tag_epc || '⚠️ sem tag'}</td>
             <td style="text-align:center;">
               <input type="checkbox" ${i.kit_entregue ? 'checked' : ''}
-                onchange="alternarKitEntregue(${i.inscricao_id}, this.checked)"
+                onchange="alternarKitEntregue(${i.inscricao_id}, this)"
                 style="width:18px; height:18px; cursor:pointer;">
             </td>
           </tr>
