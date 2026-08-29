@@ -51,6 +51,21 @@
     box-sizing: border-box;
     font-family: inherit;
   }
+  .campo-senha { position: relative; }
+  .campo-senha input { padding-right: 60px; }
+  .btn-mostrar-senha {
+    position: absolute;
+    right: 8px;
+    top: 50%;
+    transform: translateY(-50%);
+    background: none;
+    border: none;
+    color: #e8a33d;
+    font-size: 11px;
+    font-weight: 700;
+    cursor: pointer;
+    padding: 6px 8px;
+  }
   button.acao {
     width: 100%;
     margin-top: 22px;
@@ -152,7 +167,10 @@
     <!-- ABA: CRIAR EVENTO -->
     <div class="painel active" id="painelCriar">
       <label>Senha</label>
-      <input type="password" id="senhaCriar" placeholder="Senha do painel">
+      <div class="campo-senha">
+        <input type="password" id="senhaCriar" placeholder="Senha do painel">
+        <button type="button" class="btn-mostrar-senha" onclick="alternarSenha('senhaCriar', this)">MOSTRAR</button>
+      </div>
 
       <label>Nome do evento *</label>
       <input type="text" id="nomeCriar" placeholder="Ex: Corrida de Cláudio 2026">
@@ -183,7 +201,10 @@
     <!-- ABA: VER INSCRITOS -->
     <div class="painel" id="painelInscritos">
       <label>Senha</label>
-      <input type="password" id="senhaInscritos" placeholder="Senha do painel">
+      <div class="campo-senha">
+        <input type="password" id="senhaInscritos" placeholder="Senha do painel">
+        <button type="button" class="btn-mostrar-senha" onclick="alternarSenha('senhaInscritos', this)">MOSTRAR</button>
+      </div>
       <button class="acao" style="margin-top:14px;" onclick="carregarEventos()">🔄 Carregar eventos</button>
 
       <div id="listaEventos" style="margin-top:16px;"></div>
@@ -216,7 +237,10 @@
     <!-- ABA: RESULTADOS -->
     <div class="painel" id="painelResultados">
       <label>Senha</label>
-      <input type="password" id="senhaResultados" placeholder="Senha do painel">
+      <div class="campo-senha">
+        <input type="password" id="senhaResultados" placeholder="Senha do painel">
+        <button type="button" class="btn-mostrar-senha" onclick="alternarSenha('senhaResultados', this)">MOSTRAR</button>
+      </div>
       <button class="acao" style="margin-top:14px;" onclick="carregarEventosResultados()">🔄 Carregar eventos</button>
 
       <div id="listaEventosResultados" style="margin-top:16px;"></div>
@@ -229,7 +253,10 @@
       </p>
 
       <label>Senha</label>
-      <input type="password" id="senhaSimular" placeholder="Senha do painel">
+      <div class="campo-senha">
+        <input type="password" id="senhaSimular" placeholder="Senha do painel">
+        <button type="button" class="btn-mostrar-senha" onclick="alternarSenha('senhaSimular', this)">MOSTRAR</button>
+      </div>
 
       <label>Evento</label>
       <div id="listaEventosSimular" style="margin-top:8px;"></div>
@@ -261,6 +288,17 @@
   </div>
 
 <script>
+function alternarSenha(campoId, botao) {
+  const campo = document.getElementById(campoId);
+  if (campo.type === 'password') {
+    campo.type = 'text';
+    botao.textContent = 'OCULTAR';
+  } else {
+    campo.type = 'password';
+    botao.textContent = 'MOSTRAR';
+  }
+}
+
 let eventoSelecionadoId = null;
 let contadorCategoria = 0;
 
