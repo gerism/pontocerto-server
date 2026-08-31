@@ -2,11 +2,16 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const { Pool } = require('pg');
+const http = require('http');
+const { Server } = require('socket.io');
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 app.use(express.static(require('path').join(__dirname, 'public')));
+
+const server = http.createServer(app);
+const io = new Server(server, { cors: { origin: '*' } });
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
@@ -593,6 +598,11 @@ app.post('/admin/eventos/:id/leitura-rfid', async (req, res) => {
       return res.status(409).json({ erro: `Esse atleta já tem ${modo} registrada.` });
     }
 
+    // Avisa na hora todo mundo com o app aberto na tela de resultados
+    // desse evento — assim que o chip passa na antena, atualiza sem
+    // precisar esperar o próximo ciclo de atualização automática.
+    io.emit('resultado-atualizado', { evento_id: Number(id) });
+
     res.json({ nome: inscricao.rows[0].nome, horario: result.rows[0].horario });
   } catch (err) {
     console.error(err);
@@ -659,4 +669,4 @@ app.post('/admin/atletas/excluir-por-cpf', async (req, res) => {
 });
 
 const PORT = process.env.PORT || 3001;
-app.listen(PORT, () => console.log(`PontoCerto server rodando na porta ${PORT}`));
+server.listen(PORT, () => console.log(`PontoCerto server rodando na porta ${PORT}`));
