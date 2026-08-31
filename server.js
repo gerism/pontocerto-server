@@ -138,6 +138,38 @@ app.get('/eventos/:id/categorias', async (req, res) => {
   }
 });
 
+// Resultado público do evento, pro app do atleta consultar (tela
+// "ResultadosEvento" — abas Geral / Masc. / Fem. / Categoria e busca por
+// número). Só considera quem já tem largada E chegada registradas, senão
+// não tem tempo_total pra ranquear. O "numero" usado pra busca é o id da
+// própria inscrição (mesmo número mostrado no admin como "Nº do inscrito").
+app.get('/eventos/:id/resultados', async (req, res) => {
+  const { id } = req.params;
+
+  try {
+    const result = await pool.query(
+      `SELECT
+         i.id AS numero,
+         a.nome,
+         a.sexo AS genero,
+         DATE_PART('year', AGE(a.data_nascimento))::int AS idade,
+         i.tempo_total::text AS tempo_total
+       FROM inscricoes i
+       JOIN atletas a ON a.id = i.atleta_id
+       WHERE i.evento_id = $1
+         AND i.pagamento_status = 'pago'
+         AND i.hora_largada IS NOT NULL
+         AND i.hora_chegada IS NOT NULL
+       ORDER BY i.tempo_total ASC`,
+      [id]
+    );
+    res.json(result.rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ erro: 'Erro ao buscar resultados.' });
+  }
+});
+
 // ============================================
 // INSCRIÇÕES E PAGAMENTO (Mercado Pago Pix)
 // ============================================
