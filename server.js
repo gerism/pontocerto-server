@@ -1,659 +1,368 @@
-require('dotenv').config();
-const express = require('express');
-const cors = require('cors');
-const { Pool } = require('pg');
+// src/screens/ResultadosEvento.tsx
+//
+// Classificação do evento em 5 abas: Geral, Masc. Geral, Masc. Categoria,
+// Fem. Geral e Fem. Categoria. Em todas as abas tem um campo de busca
+// por número de peito, que mostra posição, velocidade, pace, idade,
+// categoria e o número de novo.
 
-const app = express();
-app.use(cors());
-app.use(express.json());
-app.use(express.static(require('path').join(__dirname, 'public')));
+import React, { useEffect, useMemo, useState } from 'react';
+import {
+  View,
+  Text,
+  TextInput,
+  FlatList,
+  TouchableOpacity,
+  StyleSheet,
+  ActivityIndicator,
+} from 'react-native';
+import type { NativeStackScreenProps } from '@react-navigation/native-stack';
+import type { RootStackParamList } from '../navigation/AppNavigator';
+import { buscarResultadosEvento, AtletaResultado } from '../services/api';
+import { colors } from '../theme/colors';
 
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: { rejectUnauthorized: false },
-});
+type Props = NativeStackScreenProps<RootStackParamList, 'ResultadosEvento'>;
 
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
+// ---------- CATEGORIA ----------
+// A categoria de cada atleta vem pronta do evento (cadastrada pelo
+// organizador no admin, ex: "50 a 60") — não calculamos mais localmente.
 
-// ============================================
-// ATLETAS
-// ============================================
+// O Postgres devolve INTERVAL tipo "00:22:14" — converte pra segundos
+function tempoParaSegundos(tempo: string): number {
+  const [h, m, s] = tempo.split(':').map(Number);
+  return h * 3600 + m * 60 + (s || 0);
+}
 
-app.post('/atletas', async (req, res) => {
-  const { device_id, nome, cpf, email, data_nascimento, sexo, telefone } = req.body;
+function formatarPace(segundos: number, distanciaKm: number): string {
+  if (!distanciaKm) return '—';
+  const paceSegundos = segundos / distanciaKm;
+  const min = Math.floor(paceSegundos / 60);
+  const seg = Math.round(paceSegundos % 60);
+  return `${min}:${seg.toString().padStart(2, '0')} min/km`;
+}
 
-  if (!device_id || !nome || !cpf || !email || !data_nascimento || !telefone) {
-    return res.status(400).json({ erro: 'Campos obrigatórios faltando' });
-  }
+function formatarVelocidade(segundos: number, distanciaKm: number): string {
+  if (!distanciaKm) return '—';
+  const horas = segundos / 3600;
+  return (distanciaKm / horas).toFixed(1);
+}
 
-  try {
-    const result = await pool.query(
-      `INSERT INTO atletas (device_id, nome, cpf, email, data_nascimento, sexo, telefone)
-       VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
-      [device_id, nome, cpf, email, data_nascimento, sexo || null, telefone]
-    );
-    res.json(result.rows[0]);
-  } catch (err) {
-    if (err.code === '23505') {
-      return res.status(409).json({ erro: 'Já existe um cadastro com esse CPF ou nesse aparelho' });
-    }
-    console.error(err);
-    res.status(500).json({ erro: 'Erro ao cadastrar atleta' });
-  }
-});
+// ---------- PROCESSAMENTO ----------
 
-app.put('/atletas/:id', async (req, res) => {
-  const { id } = req.params;
-  const { device_id, nome, email, data_nascimento, sexo, telefone } = req.body;
+interface AtletaProcessado extends AtletaResultado {
+  posicaoGeral: number;
+  posicaoCategoria: number;
+  categoria: string;
+  paceFormatado: string;
+  velocidadeKmh: string;
+  segundos: number;
+}
 
-  if (!device_id) return res.status(400).json({ erro: 'device_id obrigatório' });
+function processarAtletas(atletas: AtletaResultado[], distanciaKm: number): AtletaProcessado[] {
+  const comSegundos = atletas.map(a => ({ ...a, segundos: tempoParaSegundos(a.tempo_total) }));
+  const ordenados = [...comSegundos].sort((a, b) => a.segundos - b.segundos);
+  const comPosicaoGeral = ordenados.map((a, i) => ({ ...a, posicaoGeral: i + 1 }));
 
-  try {
-    const result = await pool.query(
-      `UPDATE atletas SET
-        nome = COALESCE($1, nome),
-        email = COALESCE($2, email),
-        data_nascimento = COALESCE($3, data_nascimento),
-        sexo = COALESCE($4, sexo),
-        telefone = COALESCE($5, telefone),
-        atualizado_em = NOW()
-       WHERE id = $6 AND device_id = $7
-       RETURNING *`,
-      [nome, email, data_nascimento, sexo, telefone, id, device_id]
-    );
-    if (result.rows.length === 0) {
-      return res.status(403).json({ erro: 'Não autorizado a editar esse cadastro' });
-    }
-    res.json(result.rows[0]);
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ erro: 'Erro ao editar cadastro' });
-  }
-});
+  const grupos: Record<string, typeof comPosicaoGeral> = {};
+  comPosicaoGeral.forEach(a => {
+    // Agrupa por gênero + categoria real do evento (categoria_id). Quem
+    // ainda não tem categoria vinculada (categoria_id nulo) fica junto
+    // num grupo "sem categoria", pra não sumir da lista.
+    const chave = `${a.genero}_${a.categoria_id ?? 'sem_categoria'}`;
+    if (!grupos[chave]) grupos[chave] = [];
+    grupos[chave].push(a);
+  });
 
-app.get('/atletas/meu', async (req, res) => {
-  const { device_id } = req.query;
-  if (!device_id) return res.status(400).json({ erro: 'device_id obrigatório' });
+  const resultado: AtletaProcessado[] = [];
+  Object.values(grupos).forEach(grupo => {
+    grupo
+      .sort((a, b) => a.segundos - b.segundos)
+      .forEach((a, i) => {
+        resultado.push({
+          ...a,
+          posicaoCategoria: i + 1,
+          categoria: a.categoria_nome || 'Sem categoria',
+          paceFormatado: formatarPace(a.segundos, distanciaKm),
+          velocidadeKmh: formatarVelocidade(a.segundos, distanciaKm),
+        });
+      });
+  });
 
-  try {
-    const result = await pool.query(
-      `SELECT id, device_id, nome, cpf, email, data_nascimento::text AS data_nascimento, sexo, telefone, criado_em, atualizado_em
-       FROM atletas WHERE device_id = $1`,
-      [device_id]
-    );
-    res.json(result.rows[0] || null);
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ erro: 'Erro ao buscar cadastro' });
-  }
-});
+  return resultado.sort((a, b) => a.posicaoGeral - b.posicaoGeral);
+}
 
-// ============================================
-// EVENTOS (públicas, pro app do atleta)
-// ============================================
+// ---------- BUSCA POR NÚMERO ----------
 
-app.get('/eventos/ativos', async (req, res) => {
-  try {
-    const result = await pool.query(
-      `SELECT id, nome, codigo, data_evento, valor_inscricao, oferece_camisa
-       FROM eventos
-       WHERE ativo = true
-       ORDER BY data_evento ASC`
-    );
-    res.json(result.rows);
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ erro: 'Erro ao listar eventos' });
-  }
-});
-
-app.get('/eventos/codigo/:codigo', async (req, res) => {
-  const { codigo } = req.params;
-  try {
-    const result = await pool.query(
-      'SELECT * FROM eventos WHERE codigo = $1 AND ativo = true',
-      [codigo.toUpperCase()]
-    );
-    if (result.rows.length === 0) {
-      return res.status(404).json({ erro: 'Código de evento inválido ou evento encerrado' });
-    }
-    res.json(result.rows[0]);
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ erro: 'Erro ao buscar evento' });
-  }
-});
-
-app.get('/eventos/:id/categorias', async (req, res) => {
-  const { id } = req.params;
-  try {
-    const result = await pool.query(
-      `SELECT * FROM categorias_evento WHERE evento_id = $1 ORDER BY idade_min ASC`,
-      [id]
-    );
-    res.json(result.rows);
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ erro: 'Erro ao buscar categorias.' });
-  }
-});
-
-// Resultado público do evento, pro app do atleta consultar (tela
-// "ResultadosEvento" — abas Geral / Masc. / Fem. / Categoria e busca por
-// número). Só considera quem já tem largada E chegada registradas, senão
-// não tem tempo_total pra ranquear. O "numero" usado pra busca é o id da
-// própria inscrição (mesmo número mostrado no admin como "Nº do inscrito").
-app.get('/eventos/:id/resultados', async (req, res) => {
-  const { id } = req.params;
-
-  try {
-    const result = await pool.query(
-      `SELECT
-         i.id AS numero,
-         a.nome,
-         a.sexo AS genero,
-         DATE_PART('year', AGE(a.data_nascimento))::int AS idade,
-         i.tempo_total::text AS tempo_total
-       FROM inscricoes i
-       JOIN atletas a ON a.id = i.atleta_id
-       WHERE i.evento_id = $1
-         AND i.pagamento_status = 'pago'
-         AND i.hora_largada IS NOT NULL
-         AND i.hora_chegada IS NOT NULL
-       ORDER BY i.tempo_total ASC`,
-      [id]
-    );
-    res.json(result.rows);
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ erro: 'Erro ao buscar resultados.' });
-  }
-});
-
-// ============================================
-// INSCRIÇÕES E PAGAMENTO (Mercado Pago Pix)
-// ============================================
-
-app.post('/eventos/:eventoId/inscrever', async (req, res) => {
-  const { eventoId } = req.params;
-  const { atleta_id, quer_camisa, camisa_tipo, camisa_tamanho } = req.body;
-
-  if (!atleta_id) {
-    return res.status(400).json({ erro: 'atleta_id é obrigatório' });
-  }
-
-  try {
-    const evento = await pool.query('SELECT * FROM eventos WHERE id = $1 AND ativo = true', [eventoId]);
-    if (evento.rows.length === 0) {
-      return res.status(404).json({ erro: 'Evento não encontrado ou encerrado' });
-    }
-
-    // Só aceita escolha de camisa se o evento realmente oferecer, e exige
-    // tipo/tamanho quando o atleta pediu camisa.
-    const querCamisaValida = evento.rows[0].oferece_camisa && !!quer_camisa;
-    if (querCamisaValida && (!camisa_tipo || !camisa_tamanho)) {
-      return res.status(400).json({ erro: 'Escolha o tipo e o tamanho da camisa.' });
-    }
-
-    const atletaResult = await pool.query('SELECT email FROM atletas WHERE id = $1', [atleta_id]);
-    if (atletaResult.rows.length === 0) {
-      return res.status(404).json({ erro: 'Atleta não encontrado' });
-    }
-    const payer_email = atletaResult.rows[0].email;
-
-    const inscricaoExistente = await pool.query(
-      'SELECT * FROM inscricoes WHERE atleta_id = $1 AND evento_id = $2',
-      [atleta_id, eventoId]
-    );
-
-    let inscricao;
-    if (inscricaoExistente.rows.length > 0) {
-      inscricao = inscricaoExistente.rows[0];
-      if (inscricao.pagamento_status === 'pago') {
-        return res.status(409).json({ erro: 'Você já está inscrito e pagou esse evento' });
-      }
-      // Atualiza a escolha de camisa caso a pessoa tenha voltado e mudado de ideia
-      await pool.query(
-        `UPDATE inscricoes SET quer_camisa = $1, camisa_tipo = $2, camisa_tamanho = $3 WHERE id = $4`,
-        [querCamisaValida, querCamisaValida ? camisa_tipo : null, querCamisaValida ? camisa_tamanho : null, inscricao.id]
-      );
-    } else {
-      const novaInscricao = await pool.query(
-        `INSERT INTO inscricoes (atleta_id, evento_id, pagamento_status, quer_camisa, camisa_tipo, camisa_tamanho)
-         VALUES ($1, $2, 'pendente', $3, $4, $5) RETURNING *`,
-        [atleta_id, eventoId, querCamisaValida, querCamisaValida ? camisa_tipo : null, querCamisaValida ? camisa_tamanho : null]
-      );
-      inscricao = novaInscricao.rows[0];
-    }
-
-    const mpResponse = await fetch('https://api.mercadopago.com/v1/payments', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${process.env.MP_ACCESS_TOKEN}`,
-        'Content-Type': 'application/json',
-        'X-Idempotency-Key': `inscricao_${inscricao.id}_${Date.now()}`,
-      },
-      body: JSON.stringify({
-        transaction_amount: parseFloat(evento.rows[0].valor_inscricao),
-        description: `Inscrição - ${evento.rows[0].nome}`,
-        payment_method_id: 'pix',
-        payer: { email: payer_email },
-        external_reference: `inscricao_${inscricao.id}`,
-        notification_url: 'https://pontocerto-server-production.up.railway.app/webhook-pagamento-evento',
-      }),
-    });
-
-    const mpDados = await mpResponse.json();
-
-    if (!mpResponse.ok) {
-      console.error('Erro Mercado Pago:', mpDados);
-      return res.status(500).json({ erro: 'Erro ao gerar cobrança Pix' });
-    }
-
-    await pool.query(
-      'UPDATE inscricoes SET mp_payment_id = $1 WHERE id = $2',
-      [mpDados.id, inscricao.id]
-    );
-
-    res.json({
-      inscricao_id: inscricao.id,
-      qr_code: mpDados.point_of_interaction.transaction_data.qr_code,
-      qr_code_base64: mpDados.point_of_interaction.transaction_data.qr_code_base64,
-    });
-  } catch (err) {
-    console.error('Erro ao criar inscrição:', err);
-    res.status(500).json({ erro: 'Erro no servidor' });
-  }
-});
-
-app.post('/webhook-pagamento-evento', async (req, res) => {
-  try {
-    const paymentId = req.body?.data?.id;
-    if (!paymentId) return res.sendStatus(200);
-
-    const mpResponse = await fetch(`https://api.mercadopago.com/v1/payments/${paymentId}`, {
-      headers: { 'Authorization': `Bearer ${process.env.MP_ACCESS_TOKEN}` },
-    });
-    const pagamento = await mpResponse.json();
-
-    if (pagamento.status === 'approved') {
-      const inscricaoInfo = await pool.query(
-        `SELECT i.id, i.evento_id, a.sexo, DATE_PART('year', AGE(a.data_nascimento))::int AS idade
-         FROM inscricoes i
-         JOIN atletas a ON a.id = i.atleta_id
-         WHERE i.mp_payment_id = $1`,
-        [paymentId]
-      );
-
-      if (inscricaoInfo.rows.length > 0) {
-        const { id: inscricaoId, evento_id, idade, sexo } = inscricaoInfo.rows[0];
-
-        // Procura primeiro uma categoria específica pro sexo do atleta;
-        // se não achar (evento só com categorias mistas), cai pra uma
-        // categoria sem sexo definido (mista) que bata com a idade.
-        const categoria = await pool.query(
-          `SELECT id FROM categorias_evento
-           WHERE evento_id = $1 AND $2 BETWEEN idade_min AND idade_max
-             AND (sexo = $3 OR sexo IS NULL)
-           ORDER BY sexo NULLS LAST
-           LIMIT 1`,
-          [evento_id, idade, sexo]
-        );
-        const categoriaId = categoria.rows[0]?.id || null;
-
-        await pool.query(
-          `UPDATE inscricoes SET pagamento_status = 'pago', categoria_id = $1 WHERE id = $2`,
-          [categoriaId, inscricaoId]
-        );
-
-        const atletaDaInscricao = await pool.query(
-          `SELECT atleta_id FROM inscricoes WHERE id = $1`,
-          [inscricaoId]
-        );
-        if (atletaDaInscricao.rows.length > 0) {
-          await limparInscricoesAntigas(atletaDaInscricao.rows[0].atleta_id);
-        }
-      }
-    }
-
-    res.sendStatus(200);
-  } catch (err) {
-    console.error('Erro no webhook de pagamento:', err);
-    res.sendStatus(200);
-  }
-});
-
-async function limparInscricoesAntigas(atletaId) {
-  await pool.query(
-    `DELETE FROM inscricoes
-     WHERE atleta_id = $1
-     AND id NOT IN (
-       SELECT id FROM inscricoes
-       WHERE atleta_id = $1
-       ORDER BY criado_em DESC
-       LIMIT 5
-     )`,
-    [atletaId]
+function InfoBloco({ label, valor }: { label: string; valor: string }) {
+  return (
+    <View style={{ flex: 1 }}>
+      <Text style={styles.infoLabel}>{label}</Text>
+      <Text style={styles.infoValor}>{valor}</Text>
+    </View>
   );
 }
 
-app.get('/atletas/:id/inscricoes', async (req, res) => {
-  const { id } = req.params;
-  try {
-    const result = await pool.query(
-      `SELECT i.*, i.tempo_total::text AS tempo_total, e.nome AS evento_nome, e.codigo AS evento_codigo, e.data_evento,
-         c.nome AS categoria_nome,
-         (SELECT COUNT(*) + 1 FROM inscricoes i2
-          WHERE i2.evento_id = i.evento_id AND i2.pagamento_status = 'pago'
-            AND i2.hora_chegada IS NOT NULL AND i2.tempo_total < i.tempo_total
-         ) AS posicao_geral,
-         (SELECT COUNT(*) + 1 FROM inscricoes i3
-          WHERE i3.evento_id = i.evento_id AND i3.categoria_id = i.categoria_id
-            AND i3.pagamento_status = 'pago'
-            AND i3.hora_chegada IS NOT NULL AND i3.tempo_total < i.tempo_total
-         ) AS posicao_categoria
-       FROM inscricoes i
-       JOIN eventos e ON e.id = i.evento_id
-       LEFT JOIN categorias_evento c ON c.id = i.categoria_id
-       WHERE i.atleta_id = $1
-       ORDER BY i.criado_em DESC
-       LIMIT 5`,
-      [id]
-    );
-    res.json(result.rows);
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ erro: 'Erro ao buscar inscrições' });
-  }
-});
+function CampoBusca({ atletas }: { atletas: AtletaProcessado[] }) {
+  const [numero, setNumero] = useState('');
 
-// ============================================
-// ADMIN (organizador)
-// ============================================
+  const encontrado = useMemo(() => {
+    if (!numero.trim()) return null;
+    return atletas.find(a => a.numero === parseInt(numero, 10)) || null;
+  }, [numero, atletas]);
 
-app.post('/admin/eventos', async (req, res) => {
-  const { senha, nome, codigo, data_evento, valor_inscricao, categorias, oferece_camisa } = req.body;
+  return (
+    <View style={styles.areaBusca}>
+      <TextInput
+        style={styles.inputBusca}
+        placeholder="Digite seu número de peito"
+        placeholderTextColor={colors.muted}
+        keyboardType="numeric"
+        value={numero}
+        onChangeText={setNumero}
+      />
 
-  if (senha !== ADMIN_PASSWORD) {
-    return res.status(401).json({ erro: 'Senha incorreta.' });
-  }
-  if (!nome || !codigo || !data_evento || !valor_inscricao) {
-    return res.status(400).json({ erro: 'Preenche nome, código, data e valor.' });
-  }
-  if (!Array.isArray(categorias) || categorias.length === 0) {
-    return res.status(400).json({ erro: 'Defina pelo menos uma categoria de idade.' });
-  }
+      {numero.trim().length > 0 && !encontrado && (
+        <Text style={styles.naoEncontrado}>Número não encontrado</Text>
+      )}
 
-  const client = await pool.connect();
-  try {
-    await client.query('BEGIN');
+      {encontrado && (
+        <View style={styles.cartaoResultado}>
+          <Text style={styles.nomeResultado}>{encontrado.nome}</Text>
+          <View style={styles.linhaInfo}>
+            <InfoBloco label="Posição" valor={`${encontrado.posicaoGeral}º`} />
+            <InfoBloco label="Nº" valor={`${encontrado.numero}`} />
+          </View>
+          <View style={styles.linhaInfo}>
+            <InfoBloco label="Velocidade" valor={`${encontrado.velocidadeKmh} km/h`} />
+            <InfoBloco label="Pace" valor={encontrado.paceFormatado} />
+          </View>
+          <View style={styles.linhaInfo}>
+            <InfoBloco label="Idade" valor={`${encontrado.idade} anos`} />
+            <InfoBloco label="Categoria" valor={encontrado.categoria} />
+          </View>
+        </View>
+      )}
+    </View>
+  );
+}
 
-    const eventoResult = await client.query(
-      `INSERT INTO eventos (nome, codigo, data_evento, valor_inscricao, oferece_camisa)
-       VALUES ($1, $2, $3, $4, $5) RETURNING *`,
-      [nome, codigo.toUpperCase(), data_evento, valor_inscricao, !!oferece_camisa]
-    );
-    const evento = eventoResult.rows[0];
+// ---------- LISTA ----------
 
-    for (const cat of categorias) {
-      await client.query(
-        `INSERT INTO categorias_evento (evento_id, nome, idade_min, idade_max, sexo)
-         VALUES ($1, $2, $3, $4, $5)`,
-        [evento.id, cat.nome, cat.idade_min, cat.idade_max, cat.sexo || null]
-      );
+function ListaResultados({
+  dados,
+  mostrarCategoria,
+}: {
+  dados: AtletaProcessado[];
+  mostrarCategoria: boolean;
+}) {
+  return (
+    <FlatList
+      data={dados}
+      keyExtractor={item => item.numero.toString()}
+      contentContainerStyle={{ paddingBottom: 40 }}
+      renderItem={({ item }) => (
+        <View style={styles.linhaLista}>
+          <Text style={styles.posicaoLista}>{item.posicaoGeral}º</Text>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.nomeLista}>{item.nome}</Text>
+            <Text style={styles.detalheLista}>
+              Nº {item.numero} · {item.tempo_total}
+              {mostrarCategoria ? ` · ${item.categoria}` : ''}
+            </Text>
+          </View>
+          <Text style={styles.paceLista}>{item.paceFormatado}</Text>
+        </View>
+      )}
+      ListEmptyComponent={<Text style={styles.vazioTexto}>Nenhum atleta nessa categoria</Text>}
+    />
+  );
+}
+
+// ---------- TELA PRINCIPAL ----------
+
+type Aba = 'geral' | 'masc_geral' | 'masc_categoria' | 'fem_geral' | 'fem_categoria';
+
+const ABAS: { id: Aba; label: string }[] = [
+  { id: 'geral', label: 'Geral' },
+  { id: 'masc_geral', label: 'Masc. Geral' },
+  { id: 'masc_categoria', label: 'Masc. Categoria' },
+  { id: 'fem_geral', label: 'Fem. Geral' },
+  { id: 'fem_categoria', label: 'Fem. Categoria' },
+];
+
+export default function ResultadosEvento({ route, navigation }: Props) {
+  const { eventoId, eventoNome, distanciaKm } = route.params;
+
+  const [aba, setAba] = useState<Aba>('geral');
+  const [atletas, setAtletas] = useState<AtletaResultado[]>([]);
+  const [carregando, setCarregando] = useState(true);
+
+  useEffect(() => {
+    let cancelado = false;
+    (async () => {
+      try {
+        const lista = await buscarResultadosEvento(eventoId);
+        if (!cancelado) setAtletas(lista);
+      } catch (e: any) {
+        // Enquanto o cronometro (antena/leitor) ainda não gerou
+        // resultados, ou a rota ainda não existe no backend, trata
+        // como "sem atletas ainda" em vez de travar a tela com erro —
+        // assim dá pra testar navegação e layout desde já.
+        if (!cancelado) setAtletas([]);
+      } finally {
+        if (!cancelado) setCarregando(false);
+      }
+    })();
+    return () => { cancelado = true; };
+  }, [eventoId]);
+
+  const processados = useMemo(
+    () => processarAtletas(atletas, distanciaKm),
+    [atletas, distanciaKm]
+  );
+
+  const dadosDaAba = useMemo(() => {
+    switch (aba) {
+      case 'geral':
+        return processados;
+      case 'masc_geral':
+        return processados.filter(a => a.genero === 'M');
+      case 'masc_categoria':
+        return processados
+          .filter(a => a.genero === 'M')
+          .sort((a, b) => a.posicaoCategoria - b.posicaoCategoria);
+      case 'fem_geral':
+        return processados.filter(a => a.genero === 'F');
+      case 'fem_categoria':
+        return processados
+          .filter(a => a.genero === 'F')
+          .sort((a, b) => a.posicaoCategoria - b.posicaoCategoria);
     }
+  }, [aba, processados]);
 
-    await client.query('COMMIT');
-    res.json(evento);
-  } catch (err) {
-    await client.query('ROLLBACK');
-    if (err.code === '23505') {
-      return res.status(409).json({ erro: 'Já existe um evento com esse código.' });
-    }
-    console.error(err);
-    res.status(500).json({ erro: 'Erro ao criar evento.' });
-  } finally {
-    client.release();
-  }
-});
-
-app.post('/admin/eventos/listar', async (req, res) => {
-  const { senha } = req.body;
-  if (senha !== ADMIN_PASSWORD) return res.status(401).json({ erro: 'Senha incorreta.' });
-
-  try {
-    const result = await pool.query(
-      `SELECT e.*,
-        (SELECT COUNT(*) FROM inscricoes i WHERE i.evento_id = e.id AND i.pagamento_status = 'pago') AS total_pagos
-       FROM eventos e
-       ORDER BY e.data_evento DESC`
+  if (carregando) {
+    return (
+      <View style={[styles.container, styles.center]}>
+        <ActivityIndicator color={colors.spotlight} />
+      </View>
     );
-    res.json(result.rows);
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ erro: 'Erro ao listar eventos.' });
   }
+
+  return (
+    <View style={styles.container}>
+      <TouchableOpacity style={styles.botaoVoltar} onPress={() => navigation.goBack()}>
+        <Text style={styles.botaoVoltarTexto}>←</Text>
+      </TouchableOpacity>
+
+      <Text style={styles.titulo}>{eventoNome}</Text>
+      <Text style={styles.subtitulo}>Classificação final</Text>
+
+      <View style={styles.linhaAbas}>
+        <FlatList
+          horizontal
+          data={ABAS}
+          keyExtractor={item => item.id}
+          showsHorizontalScrollIndicator={false}
+          renderItem={({ item }) => (
+            <TouchableOpacity
+              style={[styles.aba, aba === item.id && styles.abaAtiva]}
+              onPress={() => setAba(item.id)}
+            >
+              <Text style={[styles.textoAba, aba === item.id && styles.textoAbaAtiva]}>
+                {item.label}
+              </Text>
+            </TouchableOpacity>
+          )}
+        />
+      </View>
+
+      <CampoBusca atletas={processados} />
+
+      <ListaResultados
+        dados={dadosDaAba || []}
+        mostrarCategoria={aba === 'geral' || aba === 'masc_geral' || aba === 'fem_geral'}
+      />
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: { flex: 1, backgroundColor: colors.bg, padding: 24, paddingTop: 80 },
+  center: { justifyContent: 'center', alignItems: 'center' },
+
+  botaoVoltar: {
+    position: 'absolute',
+    top: 50,
+    left: 20,
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.line,
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 10,
+  },
+  botaoVoltarTexto: { color: colors.cream, fontSize: 18 },
+
+  erro: { color: colors.coral, fontSize: 14, textAlign: 'center', marginBottom: 20 },
+  botaoVoltarErro: { paddingVertical: 12, paddingHorizontal: 24 },
+  botaoVoltarErroTexto: { color: colors.spotlight, fontWeight: '600' },
+
+  titulo: { color: colors.cream, fontFamily: 'Fraunces-SemiBold', fontSize: 22, marginBottom: 2 },
+  subtitulo: { color: colors.muted, fontSize: 13, marginBottom: 16 },
+
+  linhaAbas: { marginBottom: 8 },
+  aba: {
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    borderRadius: 20,
+    backgroundColor: colors.surface,
+    marginRight: 8,
+    borderWidth: 1,
+    borderColor: colors.line,
+  },
+  abaAtiva: { backgroundColor: colors.spotlight, borderColor: colors.spotlight },
+  textoAba: { color: colors.muted, fontSize: 13, fontWeight: '600' },
+  textoAbaAtiva: { color: '#1a0f14' },
+
+  areaBusca: { paddingTop: 12, paddingBottom: 4 },
+  inputBusca: {
+    backgroundColor: colors.surface,
+    color: colors.cream,
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    fontSize: 16,
+    borderWidth: 1,
+    borderColor: colors.line,
+  },
+  naoEncontrado: { color: colors.coral, marginTop: 8, textAlign: 'center' },
+
+  cartaoResultado: {
+    backgroundColor: colors.surface,
+    borderRadius: 14,
+    padding: 16,
+    marginTop: 10,
+    borderWidth: 1,
+    borderColor: colors.spotlight,
+  },
+  nomeResultado: { color: colors.cream, fontSize: 18, fontWeight: 'bold', marginBottom: 10 },
+  linhaInfo: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 },
+  infoLabel: { color: colors.muted, fontSize: 12 },
+  infoValor: { color: colors.cream, fontSize: 16, fontWeight: '600', marginTop: 2 },
+
+  linhaLista: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.line,
+  },
+  posicaoLista: { color: colors.spotlight, fontWeight: 'bold', fontSize: 16, width: 40 },
+  nomeLista: { color: colors.cream, fontSize: 15, fontWeight: '600' },
+  detalheLista: { color: colors.muted, fontSize: 12, marginTop: 2 },
+  paceLista: { color: colors.muted, fontSize: 13 },
+
+  vazioTexto: { color: colors.muted, textAlign: 'center', marginTop: 40 },
 });
-
-app.post('/admin/eventos/:id/alternar-ativo', async (req, res) => {
-  const { id } = req.params;
-  const { senha } = req.body;
-  if (senha !== ADMIN_PASSWORD) return res.status(401).json({ erro: 'Senha incorreta.' });
-
-  try {
-    const result = await pool.query(
-      `UPDATE eventos SET ativo = NOT ativo WHERE id = $1 RETURNING *`,
-      [id]
-    );
-    res.json(result.rows[0]);
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ erro: 'Erro ao atualizar evento.' });
-  }
-});
-
-// Exclui um evento por completo — junto vão as categorias e inscrições
-// dele (ON DELETE CASCADE já cuida disso no banco). Use com cuidado: se
-// já teve gente pagando, o dinheiro continua tendo sido recebido no
-// Mercado Pago, só o registro no seu sistema é que some.
-app.post('/admin/eventos/:id/excluir', async (req, res) => {
-  const { id } = req.params;
-  const { senha } = req.body;
-  if (senha !== ADMIN_PASSWORD) return res.status(401).json({ erro: 'Senha incorreta.' });
-
-  try {
-    const result = await pool.query('DELETE FROM eventos WHERE id = $1 RETURNING nome', [id]);
-    if (result.rows.length === 0) {
-      return res.status(404).json({ erro: 'Evento não encontrado.' });
-    }
-    res.json({ sucesso: true, nome: result.rows[0].nome });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ erro: 'Erro ao excluir evento.' });
-  }
-});
-
-app.post('/admin/eventos/:id/inscritos', async (req, res) => {
-  const { id } = req.params;
-  const { senha, faixa_min, faixa_max, sexo } = req.body;
-  if (senha !== ADMIN_PASSWORD) return res.status(401).json({ erro: 'Senha incorreta.' });
-
-  const cond = ['i.evento_id = $1', `i.pagamento_status = 'pago'`];
-  const params = [id];
-
-  if (sexo) {
-    params.push(sexo);
-    cond.push(`a.sexo = $${params.length}`);
-  }
-  if (faixa_min) {
-    params.push(faixa_min);
-    cond.push(`DATE_PART('year', AGE(a.data_nascimento)) >= $${params.length}`);
-  }
-  if (faixa_max) {
-    params.push(faixa_max);
-    cond.push(`DATE_PART('year', AGE(a.data_nascimento)) <= $${params.length}`);
-  }
-
-  try {
-    const result = await pool.query(
-      `SELECT
-         a.nome, a.cpf, a.telefone, a.sexo,
-         DATE_PART('year', AGE(a.data_nascimento))::int AS idade,
-         c.nome AS categoria_nome,
-         i.id AS inscricao_id, i.tag_epc, i.hora_largada, i.hora_chegada, i.tempo_total,
-         i.quer_camisa, i.camisa_tipo, i.camisa_tamanho, i.kit_entregue
-       FROM inscricoes i
-       JOIN atletas a ON a.id = i.atleta_id
-       LEFT JOIN categorias_evento c ON c.id = i.categoria_id
-       WHERE ${cond.join(' AND ')}
-       ORDER BY a.nome ASC`,
-      params
-    );
-    res.json(result.rows);
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ erro: 'Erro ao listar inscritos.' });
-  }
-});
-
-// Resultado final do evento: ranking geral (todos, do mais rápido pro mais
-// lento) e ranking dentro de cada categoria de idade. Só considera quem
-// já tem largada E chegada registradas (senão não tem tempo pra ranquear).
-app.post('/admin/eventos/:id/resultados', async (req, res) => {
-  const { id } = req.params;
-  const { senha } = req.body;
-  if (senha !== ADMIN_PASSWORD) return res.status(401).json({ erro: 'Senha incorreta.' });
-
-  try {
-    const result = await pool.query(
-      `SELECT
-         a.nome, a.sexo,
-         DATE_PART('year', AGE(a.data_nascimento))::int AS idade,
-         c.nome AS categoria_nome,
-         i.categoria_id,
-         i.tempo_total::text AS tempo_total,
-         ROW_NUMBER() OVER (ORDER BY i.tempo_total ASC) AS posicao_geral,
-         ROW_NUMBER() OVER (PARTITION BY i.categoria_id ORDER BY i.tempo_total ASC) AS posicao_categoria
-       FROM inscricoes i
-       JOIN atletas a ON a.id = i.atleta_id
-       LEFT JOIN categorias_evento c ON c.id = i.categoria_id
-       WHERE i.evento_id = $1
-         AND i.pagamento_status = 'pago'
-         AND i.hora_largada IS NOT NULL
-         AND i.hora_chegada IS NOT NULL
-       ORDER BY i.tempo_total ASC`,
-      [id]
-    );
-    res.json(result.rows);
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ erro: 'Erro ao calcular resultados.' });
-  }
-});
-
-// Registra uma leitura de RFID — largada ou chegada, dependendo do modo
-// que o admin escolheu no painel operacional. Usada tanto pela simulação
-// manual (testes sem hardware) quanto, no futuro, pelo ESP32 de verdade
-// mandando a leitura real da antena.
-app.post('/admin/eventos/:id/leitura-rfid', async (req, res) => {
-  const { id } = req.params;
-  const { senha, tag_epc, modo } = req.body;
-  if (senha !== ADMIN_PASSWORD) return res.status(401).json({ erro: 'Senha incorreta.' });
-  if (!tag_epc || !['largada', 'chegada'].includes(modo)) {
-    return res.status(400).json({ erro: 'Informe tag_epc e modo (largada ou chegada).' });
-  }
-
-  try {
-    const inscricao = await pool.query(
-      `SELECT i.id, a.nome FROM inscricoes i
-       JOIN atletas a ON a.id = i.atleta_id
-       WHERE i.evento_id = $1 AND i.tag_epc = $2 AND i.pagamento_status = 'pago'`,
-      [id, tag_epc]
-    );
-
-    if (inscricao.rows.length === 0) {
-      return res.status(404).json({ erro: 'Nenhum inscrito pago encontrado com essa tag nesse evento.' });
-    }
-
-    const coluna = modo === 'largada' ? 'hora_largada' : 'hora_chegada';
-
-    // Só grava se ainda não tiver essa hora registrada — evita que uma
-    // segunda passagem pelo mesmo ponto sobrescreva o horário já certo.
-    const result = await pool.query(
-      `UPDATE inscricoes SET ${coluna} = NOW()
-       WHERE id = $1 AND ${coluna} IS NULL
-       RETURNING ${coluna} AS horario`,
-      [inscricao.rows[0].id]
-    );
-
-    if (result.rows.length === 0) {
-      return res.status(409).json({ erro: `Esse atleta já tem ${modo} registrada.` });
-    }
-
-    res.json({ nome: inscricao.rows[0].nome, horario: result.rows[0].horario });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ erro: 'Erro ao registrar leitura.' });
-  }
-});
-
-app.post('/admin/inscricoes/:id/vincular-tag', async (req, res) => {
-  const { id } = req.params;
-  const { senha, tag_epc } = req.body;
-  if (senha !== ADMIN_PASSWORD) return res.status(401).json({ erro: 'Senha incorreta.' });
-
-  try {
-    const result = await pool.query(
-      `UPDATE inscricoes SET tag_epc = $1 WHERE id = $2 RETURNING *`,
-      [tag_epc, id]
-    );
-    res.json(result.rows[0]);
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ erro: 'Erro ao vincular tag.' });
-  }
-});
-
-// Marca (ou desmarca) que o kit — tag + camisa — já foi entregue pro
-// atleta, pra você acompanhar quem já está pronto pra corrida.
-app.post('/admin/inscricoes/:id/kit-entregue', async (req, res) => {
-  const { id } = req.params;
-  const { senha, kit_entregue } = req.body;
-  if (senha !== ADMIN_PASSWORD) return res.status(401).json({ erro: 'Senha incorreta.' });
-
-  try {
-    const result = await pool.query(
-      `UPDATE inscricoes SET kit_entregue = $1 WHERE id = $2 RETURNING *`,
-      [!!kit_entregue, id]
-    );
-    res.json(result.rows[0]);
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ erro: 'Erro ao atualizar status do kit.' });
-  }
-});
-
-// Exclui o cadastro de um atleta pelo CPF — útil principalmente pra você
-// mesmo apagar cadastros de teste sem precisar mexer direto no banco.
-app.post('/admin/atletas/excluir-por-cpf', async (req, res) => {
-  const { senha, cpf } = req.body;
-  if (senha !== ADMIN_PASSWORD) return res.status(401).json({ erro: 'Senha incorreta.' });
-  if (!cpf) return res.status(400).json({ erro: 'Informe o CPF.' });
-
-  try {
-    const result = await pool.query(
-      'DELETE FROM atletas WHERE cpf = $1 RETURNING nome',
-      [cpf.replace(/\D/g, '')]
-    );
-    if (result.rows.length === 0) {
-      return res.status(404).json({ erro: 'Nenhum atleta encontrado com esse CPF.' });
-    }
-    res.json({ sucesso: true, nome: result.rows[0].nome });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ erro: 'Erro ao excluir atleta.' });
-  }
-});
-
-const PORT = process.env.PORT || 3001;
-app.listen(PORT, () => console.log(`PontoCerto server rodando na porta ${PORT}`));
