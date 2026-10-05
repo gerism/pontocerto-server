@@ -714,5 +714,110 @@ app.post('/admin/atletas/excluir-por-cpf', async (req, res) => {
   }
 });
 
+// ============================================
+// ATLETAS DE TESTE (sem app e sem pagamento)
+// Ficam marcados com device_id começando em "teste-" pra poder apagar tudo
+// de uma vez depois.
+// ============================================
+async function criarAtletaTeste(eventoId, nome, dataNascimento, sexo) {
+  const sufixo = Date.now().toString().slice(-8) + Math.floor(Math.random() * 1000).toString().padStart(3, '0');
+  const cpf = sufixo.slice(-11).padStart(11, '9');
+  const atleta = await pool.query(
+    `INSERT INTO atletas (device_id, nome, cpf, email, data_nascimento, sexo, telefone)
+     VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
+    [`teste-${sufixo}`, nome, cpf, `teste${sufixo}@pontocerto.teste`, dataNascimento, sexo || null, '00000000000']
+  );
+  const atletaId = atleta.rows[0].id;
+
+  const idadeResult = await pool.query(
+    `SELECT DATE_PART('year', AGE($1::date))::int AS idade`, [dataNascimento]
+  );
+  const idade = idadeResult.rows[0].idade;
+
+  const categoria = await pool.query(
+    `SELECT id, nome FROM categorias_evento
+     WHERE evento_id = $1 AND $2 BETWEEN idade_min AND idade_max
+       AND (sexo = $3 OR sexo IS NULL)
+     ORDER BY sexo NULLS LAST
+     LIMIT 1`,
+    [eventoId, idade, sexo || null]
+  );
+
+  const inscricao = await pool.query(
+    `INSERT INTO inscricoes (atleta_id, evento_id, pagamento_status, categoria_id, quer_camisa)
+     VALUES ($1, $2, 'pago', $3, false) RETURNING id`,
+    [atletaId, eventoId, categoria.rows[0]?.id || null]
+  );
+
+  return {
+    inscricao_id: inscricao.rows[0].id,
+    nome,
+    idade,
+    sexo,
+    categoria: categoria.rows[0]?.nome || null
+  };
+}
+
+app.post('/admin/eventos/:id/atleta-teste', async (req, res) => {
+  const { id } = req.params;
+  const { senha, nome, data_nascimento, sexo } = req.body;
+  if (senha !== ADMIN_PASSWORD) return res.status(401).json({ erro: 'Senha incorreta.' });
+  if (!nome || !data_nascimento) return res.status(400).json({ erro: 'Informe nome e data de nascimento.' });
+
+  try {
+    res.json(await criarAtletaTeste(id, nome, data_nascimento, sexo));
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ erro: 'Erro ao criar atleta de teste.' });
+  }
+});
+
+// Cria um atleta de teste pra cada categoria do evento, com idade no meio
+// da faixa e o sexo da categoria (mista vira M).
+app.post('/admin/eventos/:id/gerar-atletas-teste', async (req, res) => {
+  const { id } = req.params;
+  const { senha } = req.body;
+  if (senha !== ADMIN_PASSWORD) return res.status(401).json({ erro: 'Senha incorreta.' });
+
+  try {
+    const cats = await pool.query(
+      `SELECT * FROM categorias_evento WHERE evento_id = $1 ORDER BY idade_min, sexo`, [id]
+    );
+    if (cats.rows.length === 0) return res.status(404).json({ erro: 'Esse evento não tem categorias.' });
+
+    const criados = [];
+    for (const c of cats.rows) {
+      const max = Math.min(c.idade_max, 90);
+      const idade = Math.floor((c.idade_min + max) / 2);
+      const sexo = c.sexo || 'M';
+      const nasc = new Date();
+      nasc.setFullYear(nasc.getFullYear() - idade);
+      nasc.setDate(nasc.getDate() - 10);
+      const dataNasc = nasc.toISOString().slice(0, 10);
+      criados.push(await criarAtletaTeste(id, `Teste ${c.nome} ${sexo}`, dataNasc, sexo));
+    }
+    res.json(criados);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ erro: 'Erro ao gerar atletas de teste.' });
+  }
+});
+
+app.post('/admin/atletas-teste/excluir', async (req, res) => {
+  const { senha } = req.body;
+  if (senha !== ADMIN_PASSWORD) return res.status(401).json({ erro: 'Senha incorreta.' });
+
+  try {
+    await pool.query(
+      `DELETE FROM inscricoes WHERE atleta_id IN (SELECT id FROM atletas WHERE device_id LIKE 'teste-%')`
+    );
+    const result = await pool.query(`DELETE FROM atletas WHERE device_id LIKE 'teste-%'`);
+    res.json({ sucesso: true, excluidos: result.rowCount });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ erro: 'Erro ao excluir atletas de teste.' });
+  }
+});
+
 const PORT = process.env.PORT || 3001;
 server.listen(PORT, () => console.log(`PontoCerto server rodando na porta ${PORT}`));

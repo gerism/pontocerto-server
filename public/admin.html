@@ -164,6 +164,7 @@
       <div class="tab" id="tabInscritos" onclick="mudarAba('inscritos')">📋 Ver inscritos</div>
       <div class="tab" id="tabResultados" onclick="mudarAba('resultados')">🏆 Resultados</div>
       <div class="tab" id="tabCrono" onclick="mudarAba('crono')">⏱️ Cronometrar</div>
+      <div class="tab" id="tabTeste" onclick="mudarAba('teste')">🧪 Atletas teste</div>
     </div>
 
     <!-- ABA: CRIAR EVENTO -->
@@ -278,6 +279,43 @@
 
       <button type="button" class="acao" style="margin-top:20px; background:#1a1d24; color:#f87171; border:1px solid #f87171;" onclick="zerarCronometragem()">🗑️ Zerar cronometragem do evento</button>
     </div>
+    <!-- ABA: ATLETAS DE TESTE -->
+    <div class="painel" id="painelTeste">
+      <p style="color:#9a9ba3; font-size:12.5px; line-height:1.6; margin-bottom:16px;">
+        Cria atletas já inscritos e pagos, sem app e sem Pix. Servem só pra teste e podem ser apagados todos de uma vez no final.
+      </p>
+
+      <label>Senha</label>
+      <div class="campo-senha">
+        <input type="password" id="senhaTeste" placeholder="Senha do painel">
+        <button type="button" class="btn-mostrar-senha" onclick="alternarSenha('senhaTeste', this)">MOSTRAR</button>
+      </div>
+
+      <button class="acao" style="margin-top:8px; background:#1a1d24; color:#f3ede4; border:1px solid #2c3038;" onclick="carregarEventosTeste()">🔄 Carregar eventos</button>
+      <div id="listaEventosTeste" style="margin-top:8px;"></div>
+
+      <button class="acao" style="margin-top:16px;" onclick="gerarAtletasTeste()">⚡ Gerar 1 atleta por categoria</button>
+
+      <div style="height:1px; background:#2c3038; margin:24px 0;"></div>
+
+      <label>Nome</label>
+      <input type="text" id="nomeTeste" placeholder="Ex: Atleta Teste 1">
+
+      <label>Data de nascimento</label>
+      <input type="date" id="nascTeste">
+
+      <label>Sexo</label>
+      <select id="sexoTeste">
+        <option value="M">Masculino</option>
+        <option value="F">Feminino</option>
+      </select>
+
+      <button class="acao" style="margin-top:12px;" onclick="criarAtletaTeste()">➕ Cadastrar atleta de teste</button>
+
+      <div id="logTeste" style="margin-top:16px; max-height:400px; overflow-y:auto;"></div>
+
+      <button type="button" class="acao" style="margin-top:20px; background:#1a1d24; color:#f87171; border:1px solid #f87171;" onclick="excluirAtletasTeste()">🗑️ Excluir todos os atletas de teste</button>
+    </div>
   </div>
 
 <script>
@@ -340,6 +378,8 @@ function mudarAba(aba) {
   document.getElementById('painelResultados').classList.toggle('active', aba === 'resultados');
   document.getElementById('tabCrono').classList.toggle('active', aba === 'crono');
   document.getElementById('painelCrono').classList.toggle('active', aba === 'crono');
+  document.getElementById('tabTeste').classList.toggle('active', aba === 'teste');
+  document.getElementById('painelTeste').classList.toggle('active', aba === 'teste');
   if (aba === 'crono') focarLeitor();
   if (aba === 'resultados' && eventoSelecionadoResultados) carregarResultados();
 }
@@ -962,6 +1002,106 @@ async function zerarCronometragem() {
     alert('❌ Erro de conexão com o servidor.');
   }
   focarLeitor();
+}
+
+// ============================================
+// ATLETAS DE TESTE
+// ============================================
+let eventoSelecionadoTeste = null;
+
+function logTeste(html) {
+  document.getElementById('logTeste').insertAdjacentHTML('afterbegin',
+    `<div style="padding:8px 4px; border-bottom:1px solid #2c3038; font-size:13px;">${html}</div>`);
+}
+
+function linhaAtletaTeste(a) {
+  const cat = a.categoria || '⚠️ sem categoria';
+  return `<span class="ok">✅ Nº ${a.inscricao_id} — ${a.nome}</span> <span style="color:#9a9ba3;">· ${a.idade} anos · ${a.sexo || '-'} · ${cat}</span>`;
+}
+
+async function carregarEventosTeste() {
+  const senha = document.getElementById('senhaTeste').value.trim();
+  const container = document.getElementById('listaEventosTeste');
+  if (!senha) { container.innerHTML = '<span class="erro">Preenche a senha.</span>'; return; }
+  container.textContent = 'Carregando...';
+  try {
+    const resp = await fetch('/admin/eventos/listar', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ senha })
+    });
+    const eventos = await resp.json();
+    if (!resp.ok) { container.innerHTML = `<span class="erro">❌ ${eventos.erro || 'Erro ao carregar.'}</span>`; return; }
+    container.innerHTML = eventos.map(e => `
+      <div class="evento-item" onclick="selecionarEventoTeste(${e.id}, this)">
+        <div class="evento-nome">${e.nome}</div>
+        <div class="evento-meta">${e.codigo} · ${e.total_pagos} pago(s)</div>
+      </div>
+    `).join('');
+  } catch (e) {
+    container.innerHTML = '<span class="erro">❌ Erro de conexão com o servidor.</span>';
+  }
+}
+
+function selecionarEventoTeste(id, elemento) {
+  eventoSelecionadoTeste = id;
+  document.querySelectorAll('#listaEventosTeste .evento-item').forEach(el => el.classList.remove('selecionado'));
+  elemento.classList.add('selecionado');
+}
+
+async function postTeste(url, corpo) {
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(corpo)
+  });
+  const dados = await resp.json();
+  if (!resp.ok) throw new Error(dados.erro || 'Erro no servidor.');
+  return dados;
+}
+
+async function criarAtletaTeste() {
+  const senha = document.getElementById('senhaTeste').value.trim();
+  const nome = document.getElementById('nomeTeste').value.trim();
+  const data_nascimento = document.getElementById('nascTeste').value;
+  const sexo = document.getElementById('sexoTeste').value;
+  if (!senha || !eventoSelecionadoTeste) { alert('Preenche a senha e escolhe o evento.'); return; }
+  if (!nome || !data_nascimento) { alert('Preenche nome e data de nascimento.'); return; }
+
+  try {
+    const a = await postTeste(`/admin/eventos/${eventoSelecionadoTeste}/atleta-teste`, { senha, nome, data_nascimento, sexo });
+    logTeste(linhaAtletaTeste(a));
+    document.getElementById('nomeTeste').value = '';
+  } catch (e) {
+    logTeste(`<span class="erro">❌ ${e.message}</span>`);
+  }
+}
+
+async function gerarAtletasTeste() {
+  const senha = document.getElementById('senhaTeste').value.trim();
+  if (!senha || !eventoSelecionadoTeste) { alert('Preenche a senha e escolhe o evento.'); return; }
+  if (!confirm('Criar 1 atleta de teste pra cada categoria desse evento?')) return;
+
+  try {
+    const lista = await postTeste(`/admin/eventos/${eventoSelecionadoTeste}/gerar-atletas-teste`, { senha });
+    lista.forEach(a => logTeste(linhaAtletaTeste(a)));
+  } catch (e) {
+    logTeste(`<span class="erro">❌ ${e.message}</span>`);
+  }
+}
+
+async function excluirAtletasTeste() {
+  const senha = document.getElementById('senhaTeste').value.trim();
+  if (!senha) { alert('Preenche a senha.'); return; }
+  if (!confirm('Excluir TODOS os atletas de teste (de todos os eventos)?')) return;
+
+  try {
+    const r = await postTeste('/admin/atletas-teste/excluir', { senha });
+    document.getElementById('logTeste').innerHTML = '';
+    logTeste(`<span class="ok">✅ ${r.excluidos} atleta(s) de teste excluído(s).</span>`);
+  } catch (e) {
+    logTeste(`<span class="erro">❌ ${e.message}</span>`);
+  }
 }
 atualizarBotoesCrono();
 </script>
