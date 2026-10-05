@@ -197,6 +197,7 @@
       <button type="button" class="acao" style="margin-top:8px; background:#1a1d24; color:#f3ede4; border:1px solid #2c3038;" onclick="adicionarCategoria()">+ Adicionar faixa de idade</button>
 
       <button class="acao" id="btnCriar" onclick="criarEvento()">Criar evento</button>
+      <button class="acao" id="btnCancelarEdicao" style="display:none; margin-top:8px; background:#1a1d24; color:#f3ede4; border:1px solid #2c3038;" onclick="cancelarEdicao()">Cancelar edição</button>
 
       <div id="resultadoCriar"></div>
     </div>
@@ -384,12 +385,13 @@ function mudarAba(aba) {
   if (aba === 'resultados' && eventoSelecionadoResultados) carregarResultados();
 }
 
-function adicionarCategoria(nome = '', min = '', max = '', sexo = '') {
+function adicionarCategoria(nome = '', min = '', max = '', sexo = '', catId = '') {
   contadorCategoria++;
   const id = `cat${contadorCategoria}`;
   const div = document.createElement('div');
   div.className = 'categoria-linha';
   div.id = id;
+  div.dataset.catId = catId;
   div.innerHTML = `
     <input type="text" class="cat-nome" placeholder="Ex: 15 a 20 anos" value="${nome}">
     <input type="number" class="cat-min idade" placeholder="Min" value="${min}">
@@ -416,7 +418,7 @@ function coletarCategorias() {
     const idade_max = parseInt(linha.querySelector('.cat-max').value, 10);
     const sexo = linha.querySelector('.cat-sexo').value || null;
     if (nome && !isNaN(idade_min) && !isNaN(idade_max)) {
-      categorias.push({ nome, idade_min, idade_max, sexo });
+      categorias.push({ id: linha.dataset.catId || null, nome, idade_min, idade_max, sexo });
     }
   }
   return categorias;
@@ -443,17 +445,21 @@ async function criarEvento() {
   }
 
   btn.disabled = true;
-  resultado.textContent = 'Criando...';
+  resultado.textContent = eventoEmEdicao ? 'Salvando...' : 'Criando...';
 
   try {
-    const resp = await fetch('/admin/eventos', {
+    const url = eventoEmEdicao ? `/admin/eventos/${eventoEmEdicao}/editar` : '/admin/eventos';
+    const resp = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ senha, nome, codigo, data_evento, valor_inscricao, categorias, oferece_camisa })
     });
     const dados = await resp.json();
 
-    if (resp.ok) {
+    if (resp.ok && eventoEmEdicao) {
+      cancelarEdicao();
+      resultado.innerHTML = `<span class="ok">✅ Evento "${dados.nome}" atualizado! Categorias dos inscritos recalculadas.</span>`;
+    } else if (resp.ok) {
       resultado.innerHTML = `<span class="ok">✅ Evento "${dados.nome}" criado! Código: <b>${dados.codigo}</b></span>`;
       document.getElementById('nomeCriar').value = '';
       document.getElementById('codigoCriar').value = '';
@@ -503,6 +509,7 @@ async function carregarEventos() {
     container.innerHTML = eventos.map(e => `
       <div class="evento-item" onclick="selecionarEvento(${e.id}, this)">
         <button class="btn-excluir-evento" onclick="event.stopPropagation(); excluirEvento(${e.id}, '${e.nome.replace(/'/g, "\\'")}')">🗑️</button>
+        <button class="btn-excluir-evento" style="border-color:#ff6a3d; color:#ff6a3d; margin-right:6px;" onclick="event.stopPropagation(); editarEvento(${e.id})">✏️</button>
         <div class="evento-nome">${e.nome}
           <span class="evento-badge ${e.ativo ? 'badge-ativo' : 'badge-encerrado'}">${e.ativo ? 'ABERTO' : 'ENCERRADO'}</span>
         </div>
@@ -1102,6 +1109,53 @@ async function excluirAtletasTeste() {
   } catch (e) {
     logTeste(`<span class="erro">❌ ${e.message}</span>`);
   }
+}
+
+// ============================================
+// EDITAR EVENTO
+// ============================================
+let eventoEmEdicao = null;
+
+async function editarEvento(id) {
+  const senha = document.getElementById('senhaInscritos').value.trim();
+  try {
+    const resp = await fetch(`/admin/eventos/${id}/detalhes`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ senha })
+    });
+    const ev = await resp.json();
+    if (!resp.ok) { alert('❌ ' + (ev.erro || 'Não foi possível abrir o evento.')); return; }
+
+    eventoEmEdicao = id;
+    document.getElementById('senhaCriar').value = senha;
+    document.getElementById('nomeCriar').value = ev.nome;
+    document.getElementById('codigoCriar').value = ev.codigo;
+    document.getElementById('dataCriar').value = (ev.data_evento || '').slice(0, 10);
+    document.getElementById('valorCriar').value = ev.valor_inscricao;
+    document.getElementById('ofereceCamisaCriar').checked = !!ev.oferece_camisa;
+    document.getElementById('listaCategorias').innerHTML = '';
+    ev.categorias.forEach(c => adicionarCategoria(c.nome, c.idade_min, c.idade_max, c.sexo || '', c.id));
+    if (ev.categorias.length === 0) adicionarCategoria();
+
+    document.getElementById('btnCriar').textContent = '💾 Salvar alterações';
+    document.getElementById('btnCancelarEdicao').style.display = '';
+    document.getElementById('resultadoCriar').innerHTML = `<span style="color:#ff6a3d;">✏️ Editando "${ev.nome}"</span>`;
+    mudarAba('criar');
+  } catch (e) {
+    alert('❌ Erro de conexão com o servidor.');
+  }
+}
+
+function cancelarEdicao() {
+  eventoEmEdicao = null;
+  ['nomeCriar', 'codigoCriar', 'dataCriar', 'valorCriar'].forEach(i => document.getElementById(i).value = '');
+  document.getElementById('ofereceCamisaCriar').checked = false;
+  document.getElementById('listaCategorias').innerHTML = '';
+  adicionarCategoria();
+  document.getElementById('btnCriar').textContent = 'Criar evento';
+  document.getElementById('btnCancelarEdicao').style.display = 'none';
+  document.getElementById('resultadoCriar').innerHTML = '';
 }
 atualizarBotoesCrono();
 </script>

@@ -443,6 +443,108 @@ app.post('/admin/eventos/listar', async (req, res) => {
   }
 });
 
+// Dados do evento + categorias, pra preencher o formulário de edição
+app.post('/admin/eventos/:id/detalhes', async (req, res) => {
+  const { id } = req.params;
+  const { senha } = req.body;
+  if (senha !== ADMIN_PASSWORD) return res.status(401).json({ erro: 'Senha incorreta.' });
+
+  try {
+    const evento = await pool.query(
+      `SELECT *, data_evento::text AS data_evento FROM eventos WHERE id = $1`, [id]
+    );
+    if (evento.rows.length === 0) return res.status(404).json({ erro: 'Evento não encontrado.' });
+    const categorias = await pool.query(
+      `SELECT * FROM categorias_evento WHERE evento_id = $1 ORDER BY idade_min, sexo`, [id]
+    );
+    res.json({ ...evento.rows[0], categorias: categorias.rows });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ erro: 'Erro ao buscar evento.' });
+  }
+});
+
+// Edita o evento e as categorias. Categoria removida some, nova é criada,
+// e no final recalcula a categoria de todos os inscritos pagos do evento.
+app.post('/admin/eventos/:id/editar', async (req, res) => {
+  const { id } = req.params;
+  const { senha, nome, codigo, data_evento, valor_inscricao, categorias, oferece_camisa } = req.body;
+  if (senha !== ADMIN_PASSWORD) return res.status(401).json({ erro: 'Senha incorreta.' });
+  if (!nome || !codigo || !data_evento || !valor_inscricao) {
+    return res.status(400).json({ erro: 'Preenche nome, código, data e valor.' });
+  }
+  if (!Array.isArray(categorias) || categorias.length === 0) {
+    return res.status(400).json({ erro: 'Defina pelo menos uma categoria de idade.' });
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    const evento = await client.query(
+      `UPDATE eventos SET nome = $1, codigo = $2, data_evento = $3, valor_inscricao = $4, oferece_camisa = $5
+       WHERE id = $6 RETURNING *`,
+      [nome, codigo.toUpperCase(), data_evento, valor_inscricao, !!oferece_camisa, id]
+    );
+    if (evento.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ erro: 'Evento não encontrado.' });
+    }
+
+    // categorias que saíram do formulário
+    const idsMantidos = categorias.filter(c => c.id).map(c => Number(c.id));
+    const removidas = await client.query(
+      `SELECT id FROM categorias_evento WHERE evento_id = $1 AND NOT (id = ANY($2::int[]))`,
+      [id, idsMantidos]
+    );
+    const idsRemover = removidas.rows.map(r => r.id);
+    if (idsRemover.length > 0) {
+      await client.query(`UPDATE inscricoes SET categoria_id = NULL WHERE categoria_id = ANY($1::int[])`, [idsRemover]);
+      await client.query(`DELETE FROM categorias_evento WHERE id = ANY($1::int[])`, [idsRemover]);
+    }
+
+    for (const cat of categorias) {
+      if (cat.id) {
+        await client.query(
+          `UPDATE categorias_evento SET nome = $1, idade_min = $2, idade_max = $3, sexo = $4
+           WHERE id = $5 AND evento_id = $6`,
+          [cat.nome, cat.idade_min, cat.idade_max, cat.sexo || null, cat.id, id]
+        );
+      } else {
+        await client.query(
+          `INSERT INTO categorias_evento (evento_id, nome, idade_min, idade_max, sexo)
+           VALUES ($1, $2, $3, $4, $5)`,
+          [id, cat.nome, cat.idade_min, cat.idade_max, cat.sexo || null]
+        );
+      }
+    }
+
+    // recalcula a categoria de quem já pagou
+    await client.query(
+      `UPDATE inscricoes i SET categoria_id = (
+         SELECT c.id FROM categorias_evento c, atletas a
+         WHERE a.id = i.atleta_id AND c.evento_id = i.evento_id
+           AND DATE_PART('year', AGE(a.data_nascimento)) BETWEEN c.idade_min AND c.idade_max
+           AND (c.sexo = a.sexo OR c.sexo IS NULL)
+         ORDER BY c.sexo NULLS LAST
+         LIMIT 1
+       )
+       WHERE i.evento_id = $1 AND i.pagamento_status = 'pago'`,
+      [id]
+    );
+
+    await client.query('COMMIT');
+    res.json(evento.rows[0]);
+  } catch (err) {
+    await client.query('ROLLBACK');
+    if (err.code === '23505') return res.status(409).json({ erro: 'Já existe outro evento com esse código.' });
+    console.error(err);
+    res.status(500).json({ erro: 'Erro ao editar evento.' });
+  } finally {
+    client.release();
+  }
+});
+
 app.post('/admin/eventos/:id/alternar-ativo', async (req, res) => {
   const { id } = req.params;
   const { senha } = req.body;
