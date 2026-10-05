@@ -275,6 +275,8 @@
       <div id="statusLeitor" style="margin-top:6px; font-size:12px; color:#9a9ba3;"></div>
 
       <div id="logCrono" style="margin-top:16px; max-height:400px; overflow-y:auto;"></div>
+
+      <button type="button" class="acao" style="margin-top:20px; background:#1a1d24; color:#f87171; border:1px solid #f87171;" onclick="zerarCronometragem()">🗑️ Zerar cronometragem do evento</button>
     </div>
   </div>
 
@@ -863,6 +865,34 @@ async function registrarLeituraCrono(campo) {
   } catch (e) {
     delete ultimasLeiturasCrono[chave];
     logCrono(`<span class="erro">❌ ${tag}: erro de conexão</span>`);
+  }
+  focarLeitor();
+}
+
+async function zerarCronometragem() {
+  const senha = document.getElementById('senhaCrono').value.trim();
+  if (!senha || !eventoSelecionadoCrono) {
+    alert('Preenche a senha e escolhe o evento primeiro.');
+    return;
+  }
+  if (!confirm('Apagar TODAS as largadas e chegadas desse evento? Inscrições e tags continuam.')) return;
+
+  try {
+    const resp = await fetch(`/admin/eventos/${eventoSelecionadoCrono}/zerar-cronometragem`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ senha })
+    });
+    const dados = await resp.json();
+    if (resp.ok) {
+      for (const k in ultimasLeiturasCrono) delete ultimasLeiturasCrono[k];
+      document.getElementById('logCrono').innerHTML = '';
+      logCrono(`<span class="ok">✅ Cronometragem zerada (${dados.zerados} inscrito(s)).</span>`);
+    } else {
+      alert('❌ ' + (dados.erro || 'Não foi possível zerar.'));
+    }
+  } catch (e) {
+    alert('❌ Erro de conexão com o servidor.');
   }
   focarLeitor();
 }

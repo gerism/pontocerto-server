@@ -610,6 +610,27 @@ app.post('/admin/eventos/:id/leitura-rfid', async (req, res) => {
   }
 });
 
+// Zera largada e chegada de todos os inscritos do evento (pra testes).
+// Não mexe em inscrição, pagamento nem tag — só apaga os horários.
+app.post('/admin/eventos/:id/zerar-cronometragem', async (req, res) => {
+  const { id } = req.params;
+  const { senha } = req.body;
+  if (senha !== ADMIN_PASSWORD) return res.status(401).json({ erro: 'Senha incorreta.' });
+
+  try {
+    const result = await pool.query(
+      `UPDATE inscricoes SET hora_largada = NULL, hora_chegada = NULL
+       WHERE evento_id = $1`,
+      [id]
+    );
+    io.emit('resultado-atualizado', { evento_id: Number(id) });
+    res.json({ sucesso: true, zerados: result.rowCount });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ erro: 'Erro ao zerar cronometragem.' });
+  }
+});
+
 app.post('/admin/inscricoes/:id/vincular-tag', async (req, res) => {
   const { id } = req.params;
   const { senha, tag_epc } = req.body;
