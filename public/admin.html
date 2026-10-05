@@ -341,6 +341,7 @@ function mudarAba(aba) {
   document.getElementById('tabCrono').classList.toggle('active', aba === 'crono');
   document.getElementById('painelCrono').classList.toggle('active', aba === 'crono');
   if (aba === 'crono') focarLeitor();
+  if (aba === 'resultados' && eventoSelecionadoResultados) carregarResultados();
 }
 
 function adicionarCategoria(nome = '', min = '', max = '', sexo = '') {
@@ -845,7 +846,6 @@ function finalizarCorrida() {
   document.getElementById('senhaResultados').value = document.getElementById('senhaCrono').value;
   eventoSelecionadoResultados = eventoSelecionadoCrono;
   mudarAba('resultados');
-  carregarResultados();
 }
 
 async function carregarEventosCrono() {
@@ -949,6 +949,8 @@ async function zerarCronometragem() {
     if (resp.ok) {
       for (const k in ultimasLeiturasCrono) delete ultimasLeiturasCrono[k];
       document.getElementById('logCrono').innerHTML = '';
+      document.getElementById('resultadoResultados').innerHTML = '';
+      if (eventoSelecionadoResultados === eventoSelecionadoCrono) eventoSelecionadoResultados = null;
       estadoCrono = 'parada';
       modoCrono = 'largada';
       atualizarBotoesCrono();
