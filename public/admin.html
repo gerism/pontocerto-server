@@ -262,14 +262,14 @@
       <button class="acao" style="margin-top:8px; background:#1a1d24; color:#f3ede4; border:1px solid #2c3038;" onclick="carregarEventosCrono()">🔄 Carregar eventos</button>
       <div id="listaEventosCrono" style="margin-top:8px;"></div>
 
-      <label>Ponto de leitura</label>
+      <label>Corrida</label>
       <div style="display:flex; gap:8px;">
-        <button type="button" id="btnLargada" class="acao" style="flex:1;" onclick="mudarModoCrono('largada')">🟢 Largada</button>
-        <button type="button" id="btnChegada" class="acao" style="flex:1; background:#1a1d24; color:#f3ede4; border:1px solid #2c3038;" onclick="mudarModoCrono('chegada')">🏁 Chegada</button>
+        <button type="button" id="btnLargada" class="acao" style="flex:1;" onclick="darLargada()">🟢 Largada</button>
+        <button type="button" id="btnChegada" class="acao" style="flex:1;" onclick="finalizarCorrida()" disabled>🏁 Chegada</button>
       </div>
 
       <label>Leitor</label>
-      <input type="text" id="campoLeitor" placeholder="Clique aqui e encoste as tags no leitor..."
+      <input type="text" id="campoLeitor" placeholder="Dê a largada pra começar a ler as chegadas" disabled
         onkeydown="if(event.key==='Enter'){event.preventDefault(); registrarLeituraCrono(this);}"
         style="font-size:15px; padding:14px;">
       <div id="statusLeitor" style="margin-top:6px; font-size:12px; color:#9a9ba3;"></div>
@@ -780,13 +780,72 @@ function focarLeitor() {
   setTimeout(() => document.getElementById('campoLeitor').focus(), 50);
 }
 
-function mudarModoCrono(modo) {
-  modoCrono = modo;
+// estado da corrida: 'parada' -> 'correndo' -> 'finalizada'
+let estadoCrono = 'parada';
+
+function atualizarBotoesCrono(horaLargada) {
   const ativo = 'flex:1;';
-  const inativo = 'flex:1; background:#1a1d24; color:#f3ede4; border:1px solid #2c3038;';
-  document.getElementById('btnLargada').style.cssText = modo === 'largada' ? ativo : inativo;
-  document.getElementById('btnChegada').style.cssText = modo === 'chegada' ? ativo : inativo;
-  focarLeitor();
+  const inativo = 'flex:1; background:#1a1d24; color:#6b6d75; border:1px solid #2c3038; cursor:not-allowed;';
+  const btnL = document.getElementById('btnLargada');
+  const btnC = document.getElementById('btnChegada');
+  const leitor = document.getElementById('campoLeitor');
+
+  if (estadoCrono === 'parada') {
+    btnL.disabled = false; btnL.style.cssText = ativo; btnL.textContent = '🟢 Largada';
+    btnC.disabled = true;  btnC.style.cssText = inativo; btnC.textContent = '🏁 Chegada';
+    leitor.disabled = true; leitor.placeholder = 'Dê a largada pra começar a ler as chegadas';
+  } else if (estadoCrono === 'correndo') {
+    btnL.disabled = true;  btnL.style.cssText = inativo;
+    btnL.textContent = horaLargada ? `🟢 Largada às ${horaLargada}` : '🟢 Largada dada';
+    btnC.disabled = false; btnC.style.cssText = ativo; btnC.textContent = '🏁 Finalizar e ver resultados';
+    leitor.disabled = false; leitor.placeholder = 'Encoste as tags no leitor (chegada)...';
+  } else {
+    btnL.disabled = true; btnL.style.cssText = inativo;
+    btnC.disabled = true; btnC.style.cssText = inativo; btnC.textContent = '🏁 Corrida finalizada';
+    leitor.disabled = true; leitor.placeholder = 'Corrida finalizada';
+  }
+}
+
+async function darLargada() {
+  const senha = document.getElementById('senhaCrono').value.trim();
+  if (!senha || !eventoSelecionadoCrono) {
+    alert('Preenche a senha e escolhe o evento primeiro.');
+    return;
+  }
+  if (!confirm('Dar a largada agora pra todos os inscritos?')) return;
+
+  try {
+    const resp = await fetch(`/admin/eventos/${eventoSelecionadoCrono}/dar-largada`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ senha })
+    });
+    const dados = await resp.json();
+    if (!resp.ok) { alert('❌ ' + (dados.erro || 'Não foi possível dar a largada.')); return; }
+
+    const hora = new Date(dados.horario).toLocaleTimeString('pt-BR');
+    modoCrono = 'chegada';
+    estadoCrono = 'correndo';
+    atualizarBotoesCrono(hora);
+    logCrono(`<span class="ok">🟢 Largada às ${hora} (${dados.total} atleta(s))</span>`);
+    focarLeitor();
+  } catch (e) {
+    alert('❌ Erro de conexão com o servidor.');
+  }
+}
+
+function finalizarCorrida() {
+  if (estadoCrono !== 'correndo') return;
+  if (!confirm('Finalizar a corrida e ver os resultados?')) return;
+
+  estadoCrono = 'finalizada';
+  atualizarBotoesCrono();
+  logCrono('<span class="ok">🏁 Corrida finalizada</span>');
+
+  document.getElementById('senhaResultados').value = document.getElementById('senhaCrono').value;
+  eventoSelecionadoResultados = eventoSelecionadoCrono;
+  mudarAba('resultados');
+  carregarResultados();
 }
 
 async function carregarEventosCrono() {
@@ -815,6 +874,9 @@ async function carregarEventosCrono() {
 
 function selecionarEventoCrono(id, elemento) {
   eventoSelecionadoCrono = id;
+  estadoCrono = 'parada';
+  modoCrono = 'largada';
+  atualizarBotoesCrono();
   document.querySelectorAll('#listaEventosCrono .evento-item').forEach(el => el.classList.remove('selecionado'));
   elemento.classList.add('selecionado');
   focarLeitor();
@@ -887,6 +949,9 @@ async function zerarCronometragem() {
     if (resp.ok) {
       for (const k in ultimasLeiturasCrono) delete ultimasLeiturasCrono[k];
       document.getElementById('logCrono').innerHTML = '';
+      estadoCrono = 'parada';
+      modoCrono = 'largada';
+      atualizarBotoesCrono();
       logCrono(`<span class="ok">✅ Cronometragem zerada (${dados.zerados} inscrito(s)).</span>`);
     } else {
       alert('❌ ' + (dados.erro || 'Não foi possível zerar.'));
@@ -896,6 +961,7 @@ async function zerarCronometragem() {
   }
   focarLeitor();
 }
+atualizarBotoesCrono();
 </script>
 </body>
 </html>

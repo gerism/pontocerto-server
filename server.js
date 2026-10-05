@@ -610,6 +610,31 @@ app.post('/admin/eventos/:id/leitura-rfid', async (req, res) => {
   }
 });
 
+// Largada geral: marca o mesmo horário de largada pra todos os inscritos
+// pagos do evento que ainda não têm largada.
+app.post('/admin/eventos/:id/dar-largada', async (req, res) => {
+  const { id } = req.params;
+  const { senha } = req.body;
+  if (senha !== ADMIN_PASSWORD) return res.status(401).json({ erro: 'Senha incorreta.' });
+
+  try {
+    const result = await pool.query(
+      `UPDATE inscricoes SET hora_largada = NOW()
+       WHERE evento_id = $1 AND pagamento_status = 'pago' AND hora_largada IS NULL
+       RETURNING hora_largada`,
+      [id]
+    );
+    if (result.rowCount === 0) {
+      return res.status(409).json({ erro: 'Nenhum inscrito pago sem largada. Se for teste, zere a cronometragem antes.' });
+    }
+    io.emit('resultado-atualizado', { evento_id: Number(id) });
+    res.json({ sucesso: true, total: result.rowCount, horario: result.rows[0].hora_largada });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ erro: 'Erro ao dar a largada.' });
+  }
+});
+
 // Zera largada e chegada de todos os inscritos do evento (pra testes).
 // Não mexe em inscrição, pagamento nem tag — só apaga os horários.
 app.post('/admin/eventos/:id/zerar-cronometragem', async (req, res) => {
