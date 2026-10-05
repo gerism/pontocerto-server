@@ -163,6 +163,7 @@
       <div class="tab active" id="tabCriar" onclick="mudarAba('criar')">➕ Criar evento</div>
       <div class="tab" id="tabInscritos" onclick="mudarAba('inscritos')">📋 Ver inscritos</div>
       <div class="tab" id="tabResultados" onclick="mudarAba('resultados')">🏆 Resultados</div>
+      <div class="tab" id="tabCrono" onclick="mudarAba('crono')">⏱️ Cronometrar</div>
     </div>
 
     <!-- ABA: CRIAR EVENTO -->
@@ -250,6 +251,31 @@
       <div id="listaEventosResultados" style="margin-top:16px;"></div>
       <div id="resultadoResultados"></div>
     </div>
+    <!-- ABA: CRONOMETRAR (leitor de mesa no lugar da antena) -->
+    <div class="painel" id="painelCrono">
+      <label>Senha</label>
+      <div class="campo-senha">
+        <input type="password" id="senhaCrono" placeholder="Senha do painel">
+        <button type="button" class="btn-mostrar-senha" onclick="alternarSenha('senhaCrono', this)">MOSTRAR</button>
+      </div>
+
+      <button class="acao" style="margin-top:8px; background:#1a1d24; color:#f3ede4; border:1px solid #2c3038;" onclick="carregarEventosCrono()">🔄 Carregar eventos</button>
+      <div id="listaEventosCrono" style="margin-top:8px;"></div>
+
+      <label>Ponto de leitura</label>
+      <div style="display:flex; gap:8px;">
+        <button type="button" id="btnLargada" class="acao" style="flex:1;" onclick="mudarModoCrono('largada')">🟢 Largada</button>
+        <button type="button" id="btnChegada" class="acao" style="flex:1; background:#1a1d24; color:#f3ede4; border:1px solid #2c3038;" onclick="mudarModoCrono('chegada')">🏁 Chegada</button>
+      </div>
+
+      <label>Leitor</label>
+      <input type="text" id="campoLeitor" placeholder="Clique aqui e encoste as tags no leitor..."
+        onkeydown="if(event.key==='Enter'){event.preventDefault(); registrarLeituraCrono(this);}"
+        style="font-size:15px; padding:14px;">
+      <div id="statusLeitor" style="margin-top:6px; font-size:12px; color:#9a9ba3;"></div>
+
+      <div id="logCrono" style="margin-top:16px; max-height:400px; overflow-y:auto;"></div>
+    </div>
   </div>
 
 <script>
@@ -310,6 +336,9 @@ function mudarAba(aba) {
   document.getElementById('painelCriar').classList.toggle('active', aba === 'criar');
   document.getElementById('painelInscritos').classList.toggle('active', aba === 'inscritos');
   document.getElementById('painelResultados').classList.toggle('active', aba === 'resultados');
+  document.getElementById('tabCrono').classList.toggle('active', aba === 'crono');
+  document.getElementById('painelCrono').classList.toggle('active', aba === 'crono');
+  if (aba === 'crono') focarLeitor();
 }
 
 function adicionarCategoria(nome = '', min = '', max = '', sexo = '') {
@@ -737,6 +766,105 @@ async function salvarTag(inscricaoId, valor) {
     desenharCelulaTag(inscricaoId);
     alert('❌ Erro de conexão com o servidor.');
   }
+}
+// ============================================
+// CRONOMETRAR (leitor de mesa simulando a antena)
+// ============================================
+let eventoSelecionadoCrono = null;
+let modoCrono = 'largada';
+const ultimasLeiturasCrono = {}; // evita leitura repetida da mesma tag
+
+function focarLeitor() {
+  setTimeout(() => document.getElementById('campoLeitor').focus(), 50);
+}
+
+function mudarModoCrono(modo) {
+  modoCrono = modo;
+  const ativo = 'flex:1;';
+  const inativo = 'flex:1; background:#1a1d24; color:#f3ede4; border:1px solid #2c3038;';
+  document.getElementById('btnLargada').style.cssText = modo === 'largada' ? ativo : inativo;
+  document.getElementById('btnChegada').style.cssText = modo === 'chegada' ? ativo : inativo;
+  focarLeitor();
+}
+
+async function carregarEventosCrono() {
+  const senha = document.getElementById('senhaCrono').value.trim();
+  const container = document.getElementById('listaEventosCrono');
+  if (!senha) { container.innerHTML = '<span class="erro">Preenche a senha.</span>'; return; }
+  container.textContent = 'Carregando...';
+  try {
+    const resp = await fetch('/admin/eventos/listar', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ senha })
+    });
+    const eventos = await resp.json();
+    if (!resp.ok) { container.innerHTML = `<span class="erro">❌ ${eventos.erro || 'Erro ao carregar.'}</span>`; return; }
+    container.innerHTML = eventos.map(e => `
+      <div class="evento-item" onclick="selecionarEventoCrono(${e.id}, this)">
+        <div class="evento-nome">${e.nome}</div>
+        <div class="evento-meta">${e.codigo} · ${e.total_pagos} pago(s)</div>
+      </div>
+    `).join('');
+  } catch (e) {
+    container.innerHTML = '<span class="erro">❌ Erro de conexão com o servidor.</span>';
+  }
+}
+
+function selecionarEventoCrono(id, elemento) {
+  eventoSelecionadoCrono = id;
+  document.querySelectorAll('#listaEventosCrono .evento-item').forEach(el => el.classList.remove('selecionado'));
+  elemento.classList.add('selecionado');
+  focarLeitor();
+}
+
+function logCrono(html) {
+  const log = document.getElementById('logCrono');
+  log.insertAdjacentHTML('afterbegin', `<div style="padding:8px 4px; border-bottom:1px solid #2c3038; font-size:13px;">${html}</div>`);
+}
+
+async function registrarLeituraCrono(campo) {
+  const tag = campo.value.replace(/\s+/g, '').toUpperCase();
+  campo.value = '';
+  if (!tag) return;
+
+  const senha = document.getElementById('senhaCrono').value.trim();
+  const status = document.getElementById('statusLeitor');
+  if (!senha || !eventoSelecionadoCrono) {
+    status.innerHTML = '<span class="erro">Preenche a senha e escolhe o evento antes de ler.</span>';
+    return;
+  }
+
+  // ignora a mesma tag no mesmo ponto por 10 segundos
+  const chave = `${modoCrono}-${tag}`;
+  const agora = Date.now();
+  if (ultimasLeiturasCrono[chave] && agora - ultimasLeiturasCrono[chave] < 10000) {
+    status.textContent = `Leitura repetida ignorada (${tag})`;
+    return;
+  }
+  ultimasLeiturasCrono[chave] = agora;
+
+  try {
+    const resp = await fetch(`/admin/eventos/${eventoSelecionadoCrono}/leitura-rfid`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ senha, tag_epc: tag, modo: modoCrono })
+    });
+    const dados = await resp.json();
+    const icone = modoCrono === 'largada' ? '🟢' : '🏁';
+    if (resp.ok) {
+      const hora = new Date(dados.horario).toLocaleTimeString('pt-BR');
+      logCrono(`<span class="ok">${icone} ${dados.nome}</span> <span style="color:#9a9ba3;">— ${modoCrono} às ${hora}</span>`);
+      status.textContent = '';
+    } else {
+      delete ultimasLeiturasCrono[chave];
+      logCrono(`<span class="erro">❌ ${tag}: ${dados.erro || 'não registrada'}</span>`);
+    }
+  } catch (e) {
+    delete ultimasLeiturasCrono[chave];
+    logCrono(`<span class="erro">❌ ${tag}: erro de conexão</span>`);
+  }
+  focarLeitor();
 }
 </script>
 </body>
