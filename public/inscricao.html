@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Inscrição — PontoCerto</title>
+<style>
+  :root {
+    --papel: #f7f6f2;
+    --tinta: #16181d;
+    --cinza: #6a6e78;
+    --linha: #dddbd3;
+    --destaque: #e8452c;
+    --ok: #1f8a4c;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { background: var(--papel); color: var(--tinta); }
+  body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; line-height: 1.45; }
+  .topo { background: var(--tinta); color: var(--papel); padding: 16px; }
+  .topo-in { max-width: 520px; margin: 0 auto; }
+  .marca { font-size: 13px; color: #b9bcc4; }
+  .evento-nome { font-size: 22px; font-weight: 800; letter-spacing: -0.01em; margin-top: 2px; }
+  .evento-info { font-size: 14px; color: #d9dbe0; margin-top: 4px; }
+  main { max-width: 520px; margin: 0 auto; padding: 18px 16px 40px; }
+  h2 { font-size: 18px; margin-bottom: 12px; }
+  label { display: block; font-size: 14px; font-weight: 600; margin: 14px 0 6px; }
+  input, select {
+    width: 100%; padding: 12px; font-size: 16px; border: 1.5px solid var(--linha);
+    border-radius: 10px; background: #fff; color: var(--tinta);
+  }
+  input:focus-visible, select:focus-visible, button:focus-visible, a:focus-visible { outline: 3px solid var(--destaque); outline-offset: 2px; }
+  .linha2 { display: flex; gap: 10px; }
+  .linha2 > div { flex: 1; min-width: 0; }
+  button.principal {
+    width: 100%; margin-top: 20px; padding: 15px; font-size: 17px; font-weight: 700;
+    border: 0; border-radius: 12px; background: var(--destaque); color: #fff; cursor: pointer;
+  }
+  button.principal:disabled { opacity: .55; cursor: wait; }
+  button.link { background: none; border: 0; color: var(--tinta); text-decoration: underline; font-size: 14px; cursor: pointer; padding: 6px 0; }
+  .erro { color: #b3261e; font-size: 14px; margin-top: 12px; }
+  .aviso { font-size: 13px; color: var(--cinza); margin-top: 8px; }
+  .quem { display: flex; justify-content: space-between; align-items: center; gap: 10px;
+    padding: 12px; border: 1.5px solid var(--linha); border-radius: 10px; background: #fff; margin-bottom: 4px; }
+  .check { display: flex; align-items: center; gap: 10px; margin-top: 16px; font-size: 15px; font-weight: 600; }
+  .check input { width: 22px; height: 22px; }
+  .pix { text-align: center; }
+  .pix img { width: 240px; height: 240px; max-width: 100%; border: 1.5px solid var(--linha); border-radius: 10px; background: #fff; margin: 10px auto; display: block; }
+  .copia { width: 100%; font-size: 12px; font-family: ui-monospace, monospace; height: 80px; padding: 10px; border: 1.5px solid var(--linha); border-radius: 10px; resize: none; }
+  .esperando { margin-top: 12px; font-size: 14px; color: var(--cinza); }
+  .confirmado { text-align: center; padding: 20px 0; }
+  .confirmado .grande { font-size: 56px; line-height: 1; }
+  .confirmado h2 { font-size: 22px; margin: 12px 0 6px; }
+  .numero { display: inline-block; margin-top: 10px; font-size: 40px; font-weight: 800; border: 3px solid var(--tinta); border-radius: 12px; padding: 4px 18px; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+  <header class="topo">
+    <div class="topo-in">
+      <div class="marca">PontoCerto · inscrição</div>
+      <div class="evento-nome" id="tituloEvento">Inscrição na corrida</div>
+      <div class="evento-info" id="infoEvento"></div>
+    </div>
+  </header>
+
+  <main>
+    <!-- 1. Código do evento -->
+    <section id="passoCodigo">
+      <h2>Qual é o código da corrida?</h2>
+      <label for="codigo">Código do evento</label>
+      <input id="codigo" autocomplete="off" autocapitalize="characters" placeholder="Ex: CLD2026">
+      <button class="principal" id="btnCodigo" onclick="buscarEvento()">Continuar</button>
+      <div class="erro" id="erroCodigo"></div>
+    </section>
+
+    <!-- 2. Quem é o atleta -->
+    <section id="passoAtleta" hidden>
+      <div id="blocoConhecido" hidden>
+        <h2>Inscrever</h2>
+        <div class="quem"><b id="nomeConhecido"></b><button class="link" onclick="trocarAtleta()">Não sou eu</button></div>
+        <button class="principal" onclick="irParaConfirmar()">Continuar</button>
+      </div>
+
+      <div id="blocoNovo" hidden>
+        <h2>Seus dados</h2>
+        <label for="nome">Nome completo</label>
+        <input id="nome" autocomplete="name">
+        <div class="linha2">
+          <div><label for="cpf">CPF</label><input id="cpf" inputmode="numeric" placeholder="Só números"></div>
+          <div><label for="nasc">Nascimento</label><input id="nasc" type="date"></div>
+        </div>
+        <label for="sexo">Sexo</label>
+        <select id="sexo"><option value="">Escolha</option><option value="M">Masculino</option><option value="F">Feminino</option></select>
+        <label for="email">E-mail</label>
+        <input id="email" type="email" autocomplete="email">
+        <label for="tel">Celular (WhatsApp)</label>
+        <input id="tel" type="tel" inputmode="tel" autocomplete="tel" placeholder="(37) 99999-9999">
+        <button class="principal" id="btnCadastrar" onclick="cadastrar()">Continuar</button>
+        <button class="link" onclick="mostrarEntrar()">Já tenho cadastro (no app ou aqui)</button>
+        <div class="erro" id="erroNovo"></div>
+      </div>
+
+      <div id="blocoEntrar" hidden>
+        <h2>Já tenho cadastro</h2>
+        <label for="cpfEntrar">CPF</label>
+        <input id="cpfEntrar" inputmode="numeric" placeholder="Só números">
+        <label for="nascEntrar">Data de nascimento</label>
+        <input id="nascEntrar" type="date">
+        <button class="principal" id="btnEntrar" onclick="entrar()">Entrar</button>
+        <button class="link" onclick="mostrarNovo()">Fazer cadastro novo</button>
+        <div class="erro" id="erroEntrar"></div>
+      </div>
+    </section>
+
+    <!-- 3. Camisa e confirmação -->
+    <section id="passoConfirmar" hidden>
+      <h2>Confirmar inscrição</h2>
+      <div class="quem"><b id="nomeConfirmar"></b></div>
+
+      <div id="blocoCamisa" hidden>
+        <label class="check"><input type="checkbox" id="querCamisa" onchange="document.getElementById('opcoesCamisa').hidden = !this.checked"> Quero a camisa do kit</label>
+        <div id="opcoesCamisa" hidden>
+          <div class="linha2">
+            <div><label for="camisaTipo">Modelo</label>
+              <select id="camisaTipo"><option>Tradicional</option><option>Baby look</option></select></div>
+            <div><label for="camisaTamanho">Tamanho</label>
+              <select id="camisaTamanho"><option>PP</option><option>P</option><option selected>M</option><option>G</option><option>GG</option><option>XG</option></select></div>
+          </div>
+        </div>
+      </div>
+
+      <button class="principal" id="btnInscrever" onclick="inscrever()">Confirmar</button>
+      <div class="erro" id="erroInscrever"></div>
+    </section>
+
+    <!-- 4. Pix -->
+    <section id="passoPix" class="pix" hidden>
+      <h2>Pague com Pix</h2>
+      <p class="aviso">Abra o app do seu banco, escolha Pix e leia o QR Code, ou copie o código.</p>
+      <img id="qrImg" alt="QR Code do Pix">
+      <textarea class="copia" id="qrTexto" readonly></textarea>
+      <button class="principal" onclick="copiarPix()" id="btnCopiar">Copiar código Pix</button>
+      <div class="esperando" id="esperando">Aguardando o pagamento... esta tela confirma sozinha.</div>
+    </section>
+
+    <!-- 5. Pronto -->
+    <section id="passoPronto" class="confirmado" hidden>
+      <div class="grande">✅</div>
+      <h2>Inscrição confirmada!</h2>
+      <p id="textoPronto"></p>
+      <div class="numero" id="numeroInscricao"></div>
+      <p class="aviso">Guarde esse número. Ele aparece nos resultados.</p>
+    </section>
+  </main>
+
+<script>
+let evento = null;
+let atleta = null; // { id, nome }
+let inscricaoId = null;
+let consulta = null;
+
+function deviceId() {
+  let d = null;
+  try { d = localStorage.getItem('pc_device'); } catch (e) {}
+  if (!d) {
+    d = 'web-' + (crypto.randomUUID ? crypto.randomUUID() : Date.now() + '-' + Math.random().toString(36).slice(2));
+    try { localStorage.setItem('pc_device', d); } catch (e) {}
+  }
+  return d;
+}
+function lembrarAtleta(a) {
+  atleta = { id: a.id, nome: a.nome };
+  try { localStorage.setItem('pc_atleta', JSON.stringify(atleta)); } catch (e) {}
+}
+function atletaLembrado() {
+  try { return JSON.parse(localStorage.getItem('pc_atleta') || 'null'); } catch (e) { return null; }
+}
+
+function mostrar(id) {
+  ['passoCodigo', 'passoAtleta', 'passoConfirmar', 'passoPix', 'passoPronto']
+    .forEach(p => document.getElementById(p).hidden = p !== id);
+  window.scrollTo(0, 0);
+}
+
+async function api(url, corpo) {
+  const resp = await fetch(url, corpo ? {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(corpo)
+  } : undefined);
+  let dados = {};
+  try { dados = await resp.json(); } catch (e) {}
+  if (!resp.ok) throw new Error(dados.erro || 'Não foi possível concluir. Tente de novo.');
+  return dados;
+}
+
+async function buscarEvento() {
+  const codigo = document.getElementById('codigo').value.trim().toUpperCase();
+  const erro = document.getElementById('erroCodigo');
+  erro.textContent = '';
+  if (!codigo) { erro.textContent = 'Digite o código da corrida.'; return; }
+  const btn = document.getElementById('btnCodigo');
+  btn.disabled = true;
+  try {
+    evento = await api(`/eventos/codigo/${encodeURIComponent(codigo)}`);
+    document.getElementById('tituloEvento').textContent = evento.nome;
+    const data = new Date(String(evento.data_evento).slice(0, 10) + 'T12:00:00').toLocaleDateString('pt-BR');
+    const valor = evento.gratuito ? 'Inscrição gratuita'
+      : 'R$ ' + Number(evento.valor_inscricao).toFixed(2).replace('.', ',');
+    document.getElementById('infoEvento').textContent = `${data} — ${valor}`;
+    await prepararAtleta();
+  } catch (e) {
+    erro.textContent = e.message;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function prepararAtleta() {
+  mostrar('passoAtleta');
+  const lembrado = atletaLembrado();
+  if (lembrado) { atleta = lembrado; return mostrarConhecido(); }
+  try {
+    const meu = await api(`/atletas/meu?device_id=${encodeURIComponent(deviceId())}`);
+    if (meu) { lembrarAtleta(meu); return mostrarConhecido(); }
+  } catch (e) {}
+  mostrarNovo();
+}
+
+function esconderBlocos() {
+  ['blocoConhecido', 'blocoNovo', 'blocoEntrar'].forEach(b => document.getElementById(b).hidden = true);
+}
+function mostrarConhecido() {
+  esconderBlocos();
+  document.getElementById('nomeConhecido').textContent = atleta.nome;
+  document.getElementById('blocoConhecido').hidden = false;
+}
+function mostrarNovo() { esconderBlocos(); document.getElementById('blocoNovo').hidden = false; }
+function mostrarEntrar() { esconderBlocos(); document.getElementById('blocoEntrar').hidden = false; }
+function trocarAtleta() {
+  atleta = null;
+  try { localStorage.removeItem('pc_atleta'); } catch (e) {}
+  mostrarEntrar();
+}
+
+async function cadastrar() {
+  const erro = document.getElementById('erroNovo');
+  erro.textContent = '';
+  const v = id => document.getElementById(id).value.trim();
+  const corpo = {
+    device_id: deviceId(),
+    nome: v('nome'),
+    cpf: v('cpf').replace(/\D/g, ''),
+    data_nascimento: v('nasc'),
+    sexo: v('sexo'),
+    email: v('email'),
+    telefone: v('tel').replace(/\D/g, '')
+  };
+  if (!corpo.nome || !corpo.data_nascimento || !corpo.sexo || !corpo.email || !corpo.telefone) {
+    erro.textContent = 'Preencha todos os campos.'; return;
+  }
+  if (corpo.cpf.length !== 11) { erro.textContent = 'O CPF precisa ter 11 números.'; return; }
+
+  const btn = document.getElementById('btnCadastrar');
+  btn.disabled = true;
+  try {
+    lembrarAtleta(await api('/atletas', corpo));
+    irParaConfirmar();
+  } catch (e) {
+    erro.textContent = e.message.includes('Já existe')
+      ? 'Esse CPF já tem cadastro. Toque em "Já tenho cadastro" e entre com CPF e nascimento.'
+      : e.message;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function entrar() {
+  const erro = document.getElementById('erroEntrar');
+  erro.textContent = '';
+  const cpf = document.getElementById('cpfEntrar').value.replace(/\D/g, '');
+  const data_nascimento = document.getElementById('nascEntrar').value;
+  if (cpf.length !== 11 || !data_nascimento) { erro.textContent = 'Informe o CPF (11 números) e a data de nascimento.'; return; }
+  const btn = document.getElementById('btnEntrar');
+  btn.disabled = true;
+  try {
+    lembrarAtleta(await api('/atletas/entrar', { cpf, data_nascimento }));
+    irParaConfirmar();
+  } catch (e) {
+    erro.textContent = e.message;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+function irParaConfirmar() {
+  document.getElementById('nomeConfirmar').textContent = atleta.nome;
+  document.getElementById('blocoCamisa').hidden = !evento.oferece_camisa;
+  document.getElementById('btnInscrever').textContent = evento.gratuito ? 'Confirmar inscrição' : 'Gerar Pix';
+  mostrar('passoConfirmar');
+}
+
+async function inscrever() {
+  const erro = document.getElementById('erroInscrever');
+  erro.textContent = '';
+  const querCamisa = evento.oferece_camisa && document.getElementById('querCamisa').checked;
+  const btn = document.getElementById('btnInscrever');
+  btn.disabled = true;
+  try {
+    const r = await api(`/eventos/${evento.id}/inscrever`, {
+      atleta_id: atleta.id,
+      quer_camisa: querCamisa,
+      camisa_tipo: querCamisa ? document.getElementById('camisaTipo').value : null,
+      camisa_tamanho: querCamisa ? document.getElementById('camisaTamanho').value : null
+    });
+    inscricaoId = r.inscricao_id;
+    if (r.gratuito) return confirmado();
+    document.getElementById('qrImg').src = 'data:image/png;base64,' + r.qr_code_base64;
+    document.getElementById('qrTexto').value = r.qr_code;
+    mostrar('passoPix');
+    clearInterval(consulta);
+    consulta = setInterval(verificarPagamento, 4000);
+  } catch (e) {
+    erro.textContent = e.message;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function verificarPagamento() {
+  try {
+    const s = await api(`/inscricoes/${inscricaoId}/status`);
+    if (s.pagamento_status === 'pago') confirmado(s.categoria_nome);
+  } catch (e) {}
+}
+
+async function confirmado(categoria) {
+  clearInterval(consulta);
+  if (categoria === undefined) {
+    try { categoria = (await api(`/inscricoes/${inscricaoId}/status`)).categoria_nome; } catch (e) {}
+  }
+  document.getElementById('textoPronto').textContent =
+    `${atleta.nome}, você está inscrito em ${evento.nome}` + (categoria ? `, categoria ${categoria}.` : '.');
+  document.getElementById('numeroInscricao').textContent = 'Nº ' + inscricaoId;
+  mostrar('passoPronto');
+}
+
+async function copiarPix() {
+  const campo = document.getElementById('qrTexto');
+  try { await navigator.clipboard.writeText(campo.value); }
+  catch (e) { campo.select(); document.execCommand('copy'); }
+  const btn = document.getElementById('btnCopiar');
+  btn.textContent = 'Código copiado';
+  setTimeout(() => btn.textContent = 'Copiar código Pix', 2500);
+}
+
+document.getElementById('codigo').addEventListener('keydown', e => { if (e.key === 'Enter') buscarEvento(); });
+
+// link direto: inscricao.html?evento=CLD2026
+const codigoNoLink = new URLSearchParams(location.search).get('evento');
+if (codigoNoLink) {
+  document.getElementById('codigo').value = codigoNoLink;
+  buscarEvento();
+}
+</script>
+</body>
+</html>

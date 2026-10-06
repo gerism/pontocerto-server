@@ -185,8 +185,15 @@
       <label>Data da corrida *</label>
       <input type="date" id="dataCriar">
 
-      <label>Valor da inscrição (R$) *</label>
-      <input type="number" id="valorCriar" placeholder="Ex: 50.00" step="0.01">
+      <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
+        <input type="checkbox" id="gratuitoCriar" style="width:auto;" onchange="alternarGratuito()">
+        Inscrição gratuita (sem Pix — confirma na hora)
+      </label>
+
+      <div id="blocoValorCriar">
+        <label>Valor da inscrição (R$) *</label>
+        <input type="number" id="valorCriar" placeholder="Ex: 50.00" step="0.01">
+      </div>
 
       <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
         <input type="checkbox" id="ofereceCamisaCriar" style="width:auto;">
@@ -458,11 +465,12 @@ async function criarEvento() {
   const data_evento = document.getElementById('dataCriar').value;
   const valor_inscricao = document.getElementById('valorCriar').value;
   const oferece_camisa = document.getElementById('ofereceCamisaCriar').checked;
+  const gratuito = document.getElementById('gratuitoCriar').checked;
   const categorias = coletarCategorias();
   const resultado = document.getElementById('resultadoCriar');
   const btn = document.getElementById('btnCriar');
 
-  if (!senha || !nome || !codigo || !data_evento || !valor_inscricao) {
+  if (!senha || !nome || !codigo || !data_evento || (!gratuito && !valor_inscricao)) {
     resultado.innerHTML = '<span class="erro">Preenche todos os campos obrigatórios.</span>';
     return;
   }
@@ -479,7 +487,7 @@ async function criarEvento() {
     const resp = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ senha, nome, codigo, data_evento, valor_inscricao, categorias, oferece_camisa })
+      body: JSON.stringify({ senha, nome, codigo, data_evento, valor_inscricao, categorias, oferece_camisa, gratuito })
     });
     const dados = await resp.json();
 
@@ -493,6 +501,8 @@ async function criarEvento() {
       document.getElementById('dataCriar').value = '';
       document.getElementById('valorCriar').value = '';
       document.getElementById('ofereceCamisaCriar').checked = false;
+      document.getElementById('gratuitoCriar').checked = false;
+      alternarGratuito();
       document.getElementById('listaCategorias').innerHTML = '';
       adicionarCategoria();
     } else {
@@ -540,7 +550,7 @@ async function carregarEventos() {
         <div class="evento-nome">${e.nome}
           <span class="evento-badge ${e.ativo ? 'badge-ativo' : 'badge-encerrado'}">${e.ativo ? 'ABERTO' : 'ENCERRADO'}</span>
         </div>
-        <div class="evento-meta">${e.codigo} · ${new Date(e.data_evento).toLocaleDateString('pt-BR')} · ${e.total_pagos} pago(s)</div>
+        <div class="evento-meta">${e.codigo} · ${new Date(e.data_evento).toLocaleDateString('pt-BR')} · ${e.gratuito ? 'GRÁTIS' : 'R$ ' + Number(e.valor_inscricao).toFixed(2).replace('.', ',')} · ${e.total_pagos} inscrito(s) confirmado(s)</div>
       </div>
     `).join('');
   } catch (e) {
@@ -681,7 +691,7 @@ async function carregarEventosResultados() {
         <div class="evento-nome">${e.nome}
           <span class="evento-badge ${e.ativo ? 'badge-ativo' : 'badge-encerrado'}">${e.ativo ? 'ABERTO' : 'ENCERRADO'}</span>
         </div>
-        <div class="evento-meta">${e.codigo} · ${new Date(e.data_evento).toLocaleDateString('pt-BR')} · ${e.total_pagos} pago(s)</div>
+        <div class="evento-meta">${e.codigo} · ${new Date(e.data_evento).toLocaleDateString('pt-BR')} · ${e.gratuito ? 'GRÁTIS' : 'R$ ' + Number(e.valor_inscricao).toFixed(2).replace('.', ',')} · ${e.total_pagos} inscrito(s) confirmado(s)</div>
       </div>
     `).join('');
   } catch (e) {
@@ -1238,6 +1248,8 @@ async function editarEvento(id) {
     document.getElementById('dataCriar').value = (ev.data_evento || '').slice(0, 10);
     document.getElementById('valorCriar').value = ev.valor_inscricao;
     document.getElementById('ofereceCamisaCriar').checked = !!ev.oferece_camisa;
+    document.getElementById('gratuitoCriar').checked = !!ev.gratuito;
+    alternarGratuito();
     document.getElementById('listaCategorias').innerHTML = '';
     ev.categorias.forEach(c => adicionarCategoria(c.nome, c.idade_min, c.idade_max, c.sexo || '', c.id));
     if (ev.categorias.length === 0) adicionarCategoria();
@@ -1255,6 +1267,8 @@ function cancelarEdicao() {
   eventoEmEdicao = null;
   ['nomeCriar', 'codigoCriar', 'dataCriar', 'valorCriar'].forEach(i => document.getElementById(i).value = '');
   document.getElementById('ofereceCamisaCriar').checked = false;
+  document.getElementById('gratuitoCriar').checked = false;
+  alternarGratuito();
   document.getElementById('listaCategorias').innerHTML = '';
   adicionarCategoria();
   document.getElementById('btnCriar').textContent = 'Criar evento';
@@ -1342,6 +1356,11 @@ function enviarResultados() {
   acaoSync('/admin/sync/enviar',
     'Enviar largadas, chegadas e tags do PC pro servidor online? Os horários online serão substituídos.',
     d => `${d.atualizados} inscrição(ões) atualizada(s) no servidor online.`);
+}
+
+function alternarGratuito() {
+  const gratis = document.getElementById('gratuitoCriar').checked;
+  document.getElementById('blocoValorCriar').style.display = gratis ? 'none' : '';
 }
 atualizarBotoesCrono();
 </script>

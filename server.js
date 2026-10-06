@@ -21,6 +21,10 @@ const pool = new Pool({
 });
 
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
+
+// Ajustes de banco que rodam sozinhos ao ligar (no Railway e no PC).
+pool.query(`ALTER TABLE eventos ADD COLUMN IF NOT EXISTS gratuito BOOLEAN NOT NULL DEFAULT false`)
+  .catch(err => console.error('Erro ao ajustar tabela eventos:', err.message));
 const MODO_LOCAL = !!process.env.MODO_LOCAL;
 const SERVIDOR_ONLINE = (process.env.SERVIDOR_ONLINE || '').replace(/\/$/, '');
 
@@ -107,7 +111,7 @@ app.get('/atletas/meu', async (req, res) => {
 app.get('/eventos/ativos', async (req, res) => {
   try {
     const result = await pool.query(
-      `SELECT id, nome, codigo, data_evento, valor_inscricao, oferece_camisa
+      `SELECT id, nome, codigo, data_evento, valor_inscricao, oferece_camisa, gratuito
        FROM eventos
        WHERE ativo = true
        ORDER BY data_evento ASC`
@@ -241,6 +245,12 @@ app.post('/eventos/:eventoId/inscrever', async (req, res) => {
       inscricao = novaInscricao.rows[0];
     }
 
+    // Evento gratuito: confirma na hora, sem Pix
+    if (evento.rows[0].gratuito) {
+      await confirmarInscricao(inscricao.id);
+      return res.json({ inscricao_id: inscricao.id, gratuito: true });
+    }
+
     const mpResponse = await fetch('https://api.mercadopago.com/v1/payments', {
       method: 'POST',
       headers: {
@@ -278,6 +288,66 @@ app.post('/eventos/:eventoId/inscrever', async (req, res) => {
   } catch (err) {
     console.error('Erro ao criar inscrição:', err);
     res.status(500).json({ erro: 'Erro no servidor' });
+  }
+});
+
+// Marca a inscrição como confirmada e calcula a categoria pela idade/sexo.
+async function confirmarInscricao(inscricaoId) {
+  const info = await pool.query(
+    `SELECT i.evento_id, a.sexo, DATE_PART('year', AGE(a.data_nascimento))::int AS idade
+     FROM inscricoes i JOIN atletas a ON a.id = i.atleta_id WHERE i.id = $1`,
+    [inscricaoId]
+  );
+  if (!info.rows.length) return;
+  const { evento_id, idade, sexo } = info.rows[0];
+  const categoria = await pool.query(
+    `SELECT id FROM categorias_evento
+     WHERE evento_id = $1 AND $2 BETWEEN idade_min AND idade_max
+       AND (sexo = $3 OR sexo IS NULL)
+     ORDER BY sexo NULLS LAST
+     LIMIT 1`,
+    [evento_id, idade, sexo]
+  );
+  await pool.query(
+    `UPDATE inscricoes SET pagamento_status = 'pago', categoria_id = $1 WHERE id = $2`,
+    [categoria.rows[0]?.id || null, inscricaoId]
+  );
+}
+
+// Situação de uma inscrição (a página web consulta enquanto espera o Pix)
+app.get('/inscricoes/:id/status', async (req, res) => {
+  try {
+    const r = await pool.query(
+      `SELECT i.id, i.pagamento_status, c.nome AS categoria_nome
+       FROM inscricoes i LEFT JOIN categorias_evento c ON c.id = i.categoria_id
+       WHERE i.id = $1`,
+      [req.params.id]
+    );
+    if (!r.rows.length) return res.status(404).json({ erro: 'Inscrição não encontrada.' });
+    res.json(r.rows[0]);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ erro: 'Erro ao consultar inscrição.' });
+  }
+});
+
+// Página web: entra com CPF + nascimento quando a pessoa já tem cadastro
+// (feito no app ou em outro navegador). Devolve só o mínimo.
+app.post('/atletas/entrar', async (req, res) => {
+  const cpf = String(req.body.cpf || '').replace(/\D/g, '');
+  const { data_nascimento } = req.body;
+  if (!cpf || !data_nascimento) return res.status(400).json({ erro: 'Informe CPF e data de nascimento.' });
+  try {
+    const r = await pool.query(
+      `SELECT id, nome FROM atletas
+       WHERE regexp_replace(cpf, '\\D', '', 'g') = $1 AND data_nascimento = $2::date`,
+      [cpf, data_nascimento]
+    );
+    if (!r.rows.length) return res.status(404).json({ erro: 'CPF e data de nascimento não conferem.' });
+    res.json(r.rows[0]);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ erro: 'Erro ao buscar cadastro.' });
   }
 });
 
@@ -387,12 +457,13 @@ app.get('/atletas/:id/inscricoes', async (req, res) => {
 // ============================================
 
 app.post('/admin/eventos', async (req, res) => {
-  const { senha, nome, codigo, data_evento, valor_inscricao, categorias, oferece_camisa } = req.body;
+  const { senha, nome, codigo, data_evento, categorias, oferece_camisa, gratuito } = req.body;
+  const valor_inscricao = gratuito ? 0 : req.body.valor_inscricao;
 
   if (senha !== ADMIN_PASSWORD) {
     return res.status(401).json({ erro: 'Senha incorreta.' });
   }
-  if (!nome || !codigo || !data_evento || !valor_inscricao) {
+  if (!nome || !codigo || !data_evento || (!gratuito && !valor_inscricao)) {
     return res.status(400).json({ erro: 'Preenche nome, código, data e valor.' });
   }
   if (!Array.isArray(categorias) || categorias.length === 0) {
@@ -404,9 +475,9 @@ app.post('/admin/eventos', async (req, res) => {
     await client.query('BEGIN');
 
     const eventoResult = await client.query(
-      `INSERT INTO eventos (nome, codigo, data_evento, valor_inscricao, oferece_camisa)
-       VALUES ($1, $2, $3, $4, $5) RETURNING *`,
-      [nome, codigo.toUpperCase(), data_evento, valor_inscricao, !!oferece_camisa]
+      `INSERT INTO eventos (nome, codigo, data_evento, valor_inscricao, oferece_camisa, gratuito)
+       VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
+      [nome, codigo.toUpperCase(), data_evento, valor_inscricao, !!oferece_camisa, !!gratuito]
     );
     const evento = eventoResult.rows[0];
 
@@ -475,9 +546,10 @@ app.post('/admin/eventos/:id/detalhes', async (req, res) => {
 // e no final recalcula a categoria de todos os inscritos pagos do evento.
 app.post('/admin/eventos/:id/editar', async (req, res) => {
   const { id } = req.params;
-  const { senha, nome, codigo, data_evento, valor_inscricao, categorias, oferece_camisa } = req.body;
+  const { senha, nome, codigo, data_evento, categorias, oferece_camisa, gratuito } = req.body;
+  const valor_inscricao = gratuito ? 0 : req.body.valor_inscricao;
   if (senha !== ADMIN_PASSWORD) return res.status(401).json({ erro: 'Senha incorreta.' });
-  if (!nome || !codigo || !data_evento || !valor_inscricao) {
+  if (!nome || !codigo || !data_evento || (!gratuito && !valor_inscricao)) {
     return res.status(400).json({ erro: 'Preenche nome, código, data e valor.' });
   }
   if (!Array.isArray(categorias) || categorias.length === 0) {
@@ -489,9 +561,9 @@ app.post('/admin/eventos/:id/editar', async (req, res) => {
     await client.query('BEGIN');
 
     const evento = await client.query(
-      `UPDATE eventos SET nome = $1, codigo = $2, data_evento = $3, valor_inscricao = $4, oferece_camisa = $5
-       WHERE id = $6 RETURNING *`,
-      [nome, codigo.toUpperCase(), data_evento, valor_inscricao, !!oferece_camisa, id]
+      `UPDATE eventos SET nome = $1, codigo = $2, data_evento = $3, valor_inscricao = $4, oferece_camisa = $5, gratuito = $6
+       WHERE id = $7 RETURNING *`,
+      [nome, codigo.toUpperCase(), data_evento, valor_inscricao, !!oferece_camisa, !!gratuito, id]
     );
     if (evento.rows.length === 0) {
       await client.query('ROLLBACK');
