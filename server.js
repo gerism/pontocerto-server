@@ -644,7 +644,7 @@ app.post('/admin/eventos/:id/resultados', async (req, res) => {
   try {
     const result = await pool.query(
       `SELECT
-         a.nome, a.sexo,
+         i.id AS numero, a.nome, a.sexo,
          DATE_PART('year', AGE(a.data_nascimento))::int AS idade,
          c.nome AS categoria_nome,
          i.categoria_id,
@@ -674,10 +674,10 @@ app.post('/admin/eventos/:id/resultados', async (req, res) => {
 // mandando a leitura real da antena.
 app.post('/admin/eventos/:id/leitura-rfid', async (req, res) => {
   const { id } = req.params;
-  const { senha, tag_epc, modo } = req.body;
+  const { senha, tag_epc, modo, min_segundos } = req.body;
   if (senha !== ADMIN_PASSWORD) return res.status(401).json({ erro: 'Senha incorreta.' });
-  if (!tag_epc || !['largada', 'chegada'].includes(modo)) {
-    return res.status(400).json({ erro: 'Informe tag_epc e modo (largada ou chegada).' });
+  if (!tag_epc || !['largada', 'chegada', 'auto'].includes(modo)) {
+    return res.status(400).json({ erro: 'Informe tag_epc e modo (largada, chegada ou auto).' });
   }
 
   try {
@@ -690,6 +690,44 @@ app.post('/admin/eventos/:id/leitura-rfid', async (req, res) => {
 
     if (inscricao.rows.length === 0) {
       return res.status(404).json({ erro: 'Nenhum inscrito pago encontrado com essa tag nesse evento.' });
+    }
+
+    // Modo auto (tempo líquido / chip time): a 1ª passagem do atleta é a
+    // largada dele, a próxima (depois de um tempo mínimo) é a chegada.
+    if (modo === 'auto') {
+      const minimo = Math.max(0, Number(min_segundos) || 30);
+      const inscId = inscricao.rows[0].id;
+      const nome = inscricao.rows[0].nome;
+
+      // 1) ainda não largou -> grava a largada
+      const larg = await pool.query(
+        `UPDATE inscricoes SET hora_largada = NOW()
+         WHERE id = $1 AND hora_largada IS NULL
+         RETURNING hora_largada`,
+        [inscId]
+      );
+      if (larg.rows.length) {
+        io.emit('resultado-atualizado', { evento_id: Number(id) });
+        return res.json({ tipo: 'largada', nome, horario: larg.rows[0].hora_largada });
+      }
+
+      // 2) já largou há tempo suficiente e não chegou -> grava a chegada
+      const cheg = await pool.query(
+        `UPDATE inscricoes SET hora_chegada = NOW()
+         WHERE id = $1 AND hora_chegada IS NULL
+           AND NOW() - hora_largada >= make_interval(secs => $2)
+         RETURNING hora_chegada, tempo_total::text AS tempo_total`,
+        [inscId, minimo]
+      );
+      if (cheg.rows.length) {
+        io.emit('resultado-atualizado', { evento_id: Number(id) });
+        return res.json({ tipo: 'chegada', nome, horario: cheg.rows[0].hora_chegada, tempo_total: cheg.rows[0].tempo_total });
+      }
+
+      // 3) já chegou, ou largou agora há pouco (ainda passando na antena)
+      const atual = await pool.query('SELECT hora_chegada FROM inscricoes WHERE id = $1', [inscId]);
+      if (atual.rows[0].hora_chegada) return res.status(409).json({ erro: 'Esse atleta já tem chegada registrada.' });
+      return res.status(409).json({ erro: 'Acabou de largar, leitura ignorada.' });
     }
 
     const coluna = modo === 'largada' ? 'hora_largada' : 'hora_chegada';

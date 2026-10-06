@@ -267,7 +267,7 @@
 
       <label>Corrida</label>
       <div style="display:flex; gap:8px;">
-        <button type="button" id="btnLargada" class="acao" style="flex:1;" onclick="darLargada()">🟢 Largada</button>
+        <button type="button" id="btnLargada" class="acao" style="flex:1;" onclick="iniciarCorrida()">🟢 Iniciar corrida</button>
         <button type="button" id="btnChegada" class="acao" style="flex:1;" onclick="finalizarCorrida()" disabled>🏁 Chegada</button>
       </div>
 
@@ -276,6 +276,10 @@
         onkeydown="if(event.key==='Enter'){event.preventDefault(); registrarLeituraCrono(this);}"
         style="font-size:15px; padding:14px;">
       <div id="statusLeitor" style="margin-top:6px; font-size:12px; color:#9a9ba3;"></div>
+
+      <label>Tempo mínimo entre largada e chegada (segundos)</label>
+      <input type="number" id="minSegundosCrono" value="30" min="0" style="max-width:160px;">
+      <div style="font-size:11.5px; color:#9a9ba3; margin-top:4px;">A 1ª leitura de cada tag é a largada do atleta; a próxima, depois desse tempo, é a chegada. Leituras antes disso são ignoradas.</div>
 
       <div id="logCrono" style="margin-top:16px; max-height:400px; overflow-y:auto;"></div>
 
@@ -755,7 +759,84 @@ function montarResultadosCompletos(dados) {
   html += blocoRanking('♀️ Geral Feminino', fem, true);
   categorias.forEach(([id, nome]) => { html += blocoRanking(`♀️ ${nome} — Feminino`, porCategoria(fem, id)); });
 
-  return `<div style="column-width:260px; column-gap:14px; margin-top:16px;">${html}</div>`;
+  window.__dadosResultados = dados;
+  return `
+    <button class="acao" style="margin-top:16px;" onclick="imprimirResultados()">🖨️ Imprimir / salvar PDF</button>
+    <div style="column-width:260px; column-gap:14px; margin-top:16px;">${html}</div>`;
+}
+
+// Abre uma página branca só com os resultados e chama a impressão.
+// No Chrome, em "Destino", escolha "Salvar como PDF". As páginas são
+// criadas sozinhas, conforme a quantidade de atletas.
+function imprimirResultados() {
+  const dados = window.__dadosResultados || [];
+  if (!dados.length) { alert('Nenhum resultado pra imprimir.'); return; }
+
+  const sel = document.querySelector('#listaEventosResultados .evento-item.selecionado .evento-nome');
+  const nomeEvento = sel ? sel.childNodes[0].textContent.trim() : 'Resultados';
+  const esc = t => String(t ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+  const categorias = [...new Map(
+    dados.map(r => [r.categoria_id ?? 'sem', r.categoria_nome || 'Sem categoria'])
+  ).entries()];
+  const masc = dados.filter(r => r.sexo === 'M');
+  const fem = dados.filter(r => r.sexo === 'F');
+  const porCategoria = (lista, id) => lista.filter(r => (r.categoria_id ?? 'sem') === id);
+
+  const tabela = (titulo, lista) => !lista.length ? '' : `
+    <section>
+      <h2>${esc(titulo)}</h2>
+      <table>
+        <thead><tr><th class="c">Pos.</th><th class="c">Nº</th><th>Nome</th><th class="c">Idade</th><th>Categoria</th><th class="d">Tempo</th></tr></thead>
+        <tbody>
+          ${lista.map((r, i) => `<tr>
+            <td class="c">${i + 1}º</td>
+            <td class="c">${r.numero ?? ''}</td>
+            <td>${esc(r.nome)}</td>
+            <td class="c">${r.idade ?? ''}</td>
+            <td>${esc(r.categoria_nome || 'Sem categoria')}</td>
+            <td class="d">${formatarTempoAdmin(r.tempo_total)}</td>
+          </tr>`).join('')}
+        </tbody>
+      </table>
+    </section>`;
+
+  let corpo = tabela('Geral', dados);
+  corpo += tabela('Geral Masculino', masc);
+  categorias.forEach(([id, nome]) => { corpo += tabela(`${nome} — Masculino`, porCategoria(masc, id)); });
+  corpo += tabela('Geral Feminino', fem);
+  categorias.forEach(([id, nome]) => { corpo += tabela(`${nome} — Feminino`, porCategoria(fem, id)); });
+
+  const janela = window.open('', '_blank');
+  if (!janela) { alert('O navegador bloqueou a janela. Libere pop-ups pra este site.'); return; }
+  janela.document.write(`<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8">
+    <title>Resultados - ${esc(nomeEvento)}</title>
+    <style>
+      @page { size: A4; margin: 14mm 12mm; }
+      body { font-family: Arial, Helvetica, sans-serif; color: #111; margin: 0; font-variant-numeric: tabular-nums; }
+      header { border-bottom: 2px solid #111; padding-bottom: 6px; margin-bottom: 14px; }
+      header h1 { font-size: 20px; margin: 0; }
+      header p { font-size: 11px; color: #555; margin: 3px 0 0; }
+      section { margin-bottom: 18px; }
+      h2 { font-size: 14px; margin: 0 0 6px; break-after: avoid; }
+      table { width: 100%; border-collapse: collapse; font-size: 11.5px; }
+      thead { display: table-header-group; }
+      th { text-align: left; border-bottom: 1.5px solid #111; padding: 4px 6px; }
+      td { border-bottom: 1px solid #ccc; padding: 4px 6px; }
+      tr { break-inside: avoid; }
+      .c { text-align: center; width: 48px; }
+      .d { text-align: right; width: 80px; }
+      .barra { padding: 10px; background: #f2f2f2; text-align: center; }
+      .barra button { font-size: 15px; padding: 8px 18px; cursor: pointer; }
+      @media print { .barra { display: none; } }
+    </style></head><body>
+    <div class="barra"><button onclick="window.print()">🖨️ Imprimir / salvar PDF</button></div>
+    <header><h1>${esc(nomeEvento)} — Resultados</h1>
+      <p>${dados.length} atleta(s) classificado(s) · gerado em ${new Date().toLocaleString('pt-BR')}</p></header>
+    ${corpo}
+    </body></html>`);
+  janela.document.close();
+  setTimeout(() => janela.print(), 400);
 }
 
 // ============================================
@@ -849,14 +930,14 @@ function atualizarBotoesCrono(horaLargada) {
   const leitor = document.getElementById('campoLeitor');
 
   if (estadoCrono === 'parada') {
-    btnL.disabled = false; btnL.style.cssText = ativo; btnL.textContent = '🟢 Largada';
-    btnC.disabled = true;  btnC.style.cssText = inativo; btnC.textContent = '🏁 Chegada';
-    leitor.disabled = true; leitor.placeholder = 'Dê a largada pra começar a ler as chegadas';
+    btnL.disabled = false; btnL.style.cssText = ativo; btnL.textContent = '🟢 Iniciar corrida';
+    btnC.disabled = true;  btnC.style.cssText = inativo; btnC.textContent = '🏁 Finalizar';
+    leitor.disabled = true; leitor.placeholder = 'Clique em Iniciar corrida pra começar a ler as tags';
   } else if (estadoCrono === 'correndo') {
     btnL.disabled = true;  btnL.style.cssText = inativo;
-    btnL.textContent = horaLargada ? `🟢 Largada às ${horaLargada}` : '🟢 Largada dada';
+    btnL.textContent = horaLargada ? `🟢 Corrida iniciada às ${horaLargada}` : '🟢 Corrida em andamento';
     btnC.disabled = false; btnC.style.cssText = ativo; btnC.textContent = '🏁 Finalizar e ver resultados';
-    leitor.disabled = false; leitor.placeholder = 'Encoste as tags no leitor (chegada)...';
+    leitor.disabled = false; leitor.placeholder = 'Lendo tags: 1ª passagem = largada, 2ª = chegada...';
   } else {
     btnL.disabled = true; btnL.style.cssText = inativo;
     btnC.disabled = true; btnC.style.cssText = inativo; btnC.textContent = '🏁 Corrida finalizada';
@@ -864,32 +945,18 @@ function atualizarBotoesCrono(horaLargada) {
   }
 }
 
-async function darLargada() {
+function iniciarCorrida() {
   const senha = document.getElementById('senhaCrono').value.trim();
   if (!senha || !eventoSelecionadoCrono) {
     alert('Preenche a senha e escolhe o evento primeiro.');
     return;
   }
-  if (!confirm('Dar a largada agora pra todos os inscritos?')) return;
-
-  try {
-    const resp = await fetch(`/admin/eventos/${eventoSelecionadoCrono}/dar-largada`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ senha })
-    });
-    const dados = await resp.json();
-    if (!resp.ok) { alert('❌ ' + (dados.erro || 'Não foi possível dar a largada.')); return; }
-
-    const hora = new Date(dados.horario).toLocaleTimeString('pt-BR');
-    modoCrono = 'chegada';
-    estadoCrono = 'correndo';
-    atualizarBotoesCrono(hora);
-    logCrono(`<span class="ok">🟢 Largada às ${hora} (${dados.total} atleta(s))</span>`);
-    focarLeitor();
-  } catch (e) {
-    alert('❌ Erro de conexão com o servidor.');
-  }
+  const hora = new Date().toLocaleTimeString('pt-BR');
+  modoCrono = 'auto';
+  estadoCrono = 'correndo';
+  atualizarBotoesCrono(hora);
+  logCrono(`<span class="ok">🟢 Corrida iniciada às ${hora} — cada atleta começa a contar quando passa no leitor</span>`);
+  focarLeitor();
 }
 
 function finalizarCorrida() {
@@ -957,7 +1024,7 @@ async function registrarLeituraCrono(campo) {
   }
 
   // ignora a mesma tag no mesmo ponto por 10 segundos
-  const chave = `${modoCrono}-${tag}`;
+  const chave = tag;
   const agora = Date.now();
   if (ultimasLeiturasCrono[chave] && agora - ultimasLeiturasCrono[chave] < 10000) {
     status.textContent = `Leitura repetida ignorada (${tag})`;
@@ -969,14 +1036,19 @@ async function registrarLeituraCrono(campo) {
     const resp = await fetch(`/admin/eventos/${eventoSelecionadoCrono}/leitura-rfid`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ senha, tag_epc: tag, modo: modoCrono })
+      body: JSON.stringify({ senha, tag_epc: tag, modo: 'auto', min_segundos: Number(document.getElementById('minSegundosCrono').value) || 0 })
     });
     const dados = await resp.json();
-    const icone = modoCrono === 'largada' ? '🟢' : '🏁';
     if (resp.ok) {
       const hora = new Date(dados.horario).toLocaleTimeString('pt-BR');
-      logCrono(`<span class="ok">${icone} ${dados.nome}</span> <span style="color:#9a9ba3;">— ${modoCrono} às ${hora}</span>`);
+      if (dados.tipo === 'largada') {
+        logCrono(`<span class="ok">🟢 ${dados.nome}</span> <span style="color:#9a9ba3;">— largou às ${hora}</span>`);
+      } else {
+        logCrono(`<span class="ok">🏁 ${dados.nome}</span> <span style="color:#9a9ba3;">— chegou às ${hora} · tempo ${formatarTempoAdmin(dados.tempo_total)}</span>`);
+      }
       status.textContent = '';
+    } else if ((dados.erro || '').includes('Acabou de largar')) {
+      status.textContent = `Acabou de largar, leitura ignorada (${tag})`;
     } else if ((dados.erro || '').includes('já tem chegada')) {
       // tag de quem já chegou continua sendo lida: ignora sem poluir a lista
       ultimasLeiturasCrono[chave] = Infinity;
