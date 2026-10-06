@@ -157,7 +157,7 @@
 </head>
 <body>
   <div class="card">
-    <h1>🏁 Admin — PontoCerto</h1>
+    <h1>🏁 Admin — PontoCerto <span id="badgeModo" style="display:none; font-size:11px; padding:3px 8px; border-radius:6px; background:#4ade8033; color:#4ade80; vertical-align:middle;">MODO LOCAL (PC)</span></h1>
 
     <div class="tabs">
       <div class="tab active" id="tabCriar" onclick="mudarAba('criar')">➕ Criar evento</div>
@@ -165,6 +165,7 @@
       <div class="tab" id="tabResultados" onclick="mudarAba('resultados')">🏆 Resultados</div>
       <div class="tab" id="tabCrono" onclick="mudarAba('crono')">⏱️ Cronometrar</div>
       <div class="tab" id="tabTeste" onclick="mudarAba('teste')">🧪 Atletas teste</div>
+      <div class="tab" id="tabSync" onclick="mudarAba('sync')" style="display:none;">🔄 Sincronizar</div>
     </div>
 
     <!-- ABA: CRIAR EVENTO -->
@@ -317,6 +318,26 @@
 
       <button type="button" class="acao" style="margin-top:20px; background:#1a1d24; color:#f87171; border:1px solid #f87171;" onclick="excluirAtletasTeste()">🗑️ Excluir todos os atletas de teste</button>
     </div>
+    <!-- ABA: SINCRONIZAR (só aparece no servidor do PC) -->
+    <div class="painel" id="painelSync">
+      <p style="color:#9a9ba3; font-size:12.5px; line-height:1.6; margin-bottom:16px;">
+        Precisa de internet. <b>Antes da corrida:</b> baixe o evento pro PC. <b>Depois da corrida:</b> envie os resultados pro servidor online.
+      </p>
+
+      <label>Senha</label>
+      <div class="campo-senha">
+        <input type="password" id="senhaSync" placeholder="Senha do painel">
+        <button type="button" class="btn-mostrar-senha" onclick="alternarSenha('senhaSync', this)">MOSTRAR</button>
+      </div>
+
+      <button class="acao" style="margin-top:8px; background:#1a1d24; color:#f3ede4; border:1px solid #2c3038;" onclick="carregarEventosOnline()">🌐 Carregar eventos do servidor online</button>
+      <div id="listaEventosSync" style="margin-top:8px;"></div>
+
+      <button class="acao" style="margin-top:16px;" onclick="baixarEvento()">⬇️ Baixar evento pro PC</button>
+      <button class="acao" style="margin-top:8px;" onclick="enviarResultados()">⬆️ Enviar resultados pro online</button>
+
+      <div id="logSync" style="margin-top:16px;"></div>
+    </div>
   </div>
 
 <script>
@@ -381,6 +402,8 @@ function mudarAba(aba) {
   document.getElementById('painelCrono').classList.toggle('active', aba === 'crono');
   document.getElementById('tabTeste').classList.toggle('active', aba === 'teste');
   document.getElementById('painelTeste').classList.toggle('active', aba === 'teste');
+  document.getElementById('tabSync').classList.toggle('active', aba === 'sync');
+  document.getElementById('painelSync').classList.toggle('active', aba === 'sync');
   if (aba === 'crono') focarLeitor();
   if (aba === 'resultados' && eventoSelecionadoResultados) carregarResultados();
 }
@@ -1156,6 +1179,84 @@ function cancelarEdicao() {
   document.getElementById('btnCriar').textContent = 'Criar evento';
   document.getElementById('btnCancelarEdicao').style.display = 'none';
   document.getElementById('resultadoCriar').innerHTML = '';
+}
+
+// ============================================
+// SINCRONIZAR (modo local)
+// ============================================
+let eventoSelecionadoSync = null;
+
+fetch('/modo').then(r => r.json()).then(m => {
+  if (m.local) {
+    document.getElementById('tabSync').style.display = '';
+    document.getElementById('badgeModo').style.display = '';
+  }
+}).catch(() => {});
+
+function logSync(html) {
+  document.getElementById('logSync').insertAdjacentHTML('afterbegin',
+    `<div style="padding:8px 4px; border-bottom:1px solid #2c3038; font-size:13px;">${html}</div>`);
+}
+
+async function carregarEventosOnline() {
+  const senha = document.getElementById('senhaSync').value.trim();
+  const container = document.getElementById('listaEventosSync');
+  if (!senha) { container.innerHTML = '<span class="erro">Preenche a senha.</span>'; return; }
+  container.textContent = 'Buscando no servidor online...';
+  try {
+    const resp = await fetch('/admin/sync/eventos-online', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ senha })
+    });
+    const eventos = await resp.json();
+    if (!resp.ok) { container.innerHTML = `<span class="erro">❌ ${eventos.erro}</span>`; return; }
+    container.innerHTML = eventos.map(e => `
+      <div class="evento-item" onclick="selecionarEventoSync(${e.id}, this)">
+        <div class="evento-nome">${e.nome}</div>
+        <div class="evento-meta">${e.codigo} · ${e.total_pagos} pago(s)</div>
+      </div>
+    `).join('');
+  } catch (e) {
+    container.innerHTML = '<span class="erro">❌ Erro de conexão.</span>';
+  }
+}
+
+function selecionarEventoSync(id, elemento) {
+  eventoSelecionadoSync = id;
+  document.querySelectorAll('#listaEventosSync .evento-item').forEach(el => el.classList.remove('selecionado'));
+  elemento.classList.add('selecionado');
+}
+
+async function acaoSync(rota, pergunta, sucesso) {
+  const senha = document.getElementById('senhaSync').value.trim();
+  if (!senha || !eventoSelecionadoSync) { alert('Preenche a senha e escolhe o evento.'); return; }
+  if (!confirm(pergunta)) return;
+  logSync('<span style="color:#9a9ba3;">Aguarde...</span>');
+  try {
+    const resp = await fetch(rota, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ senha, evento_id: eventoSelecionadoSync })
+    });
+    const dados = await resp.json();
+    if (resp.ok) logSync(`<span class="ok">✅ ${sucesso(dados)}</span>`);
+    else logSync(`<span class="erro">❌ ${dados.erro}</span>`);
+  } catch (e) {
+    logSync('<span class="erro">❌ Erro de conexão.</span>');
+  }
+}
+
+function baixarEvento() {
+  acaoSync('/admin/sync/baixar',
+    'Baixar o evento pro PC? O que o PC tiver desse evento será substituído pelo que está online.',
+    d => `"${d.evento}" baixado — ${d.inscritos} inscrito(s) pago(s).`);
+}
+
+function enviarResultados() {
+  acaoSync('/admin/sync/enviar',
+    'Enviar largadas, chegadas e tags do PC pro servidor online? Os horários online serão substituídos.',
+    d => `${d.atualizados} inscrição(ões) atualizada(s) no servidor online.`);
 }
 atualizarBotoesCrono();
 </script>

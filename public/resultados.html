@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Resultados — PontoCerto</title>
+<style>
+  /* Página aberta no celular, ao ar livre, sem internet: fundo claro pra
+     ler no sol, fontes do próprio aparelho, números com largura fixa. */
+  :root {
+    --papel: #f7f6f2;
+    --tinta: #16181d;
+    --cinza: #6a6e78;
+    --linha: #dddbd3;
+    --largada: #e8452c;
+    --ouro: #c9971c;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { background: var(--papel); color: var(--tinta); }
+  body {
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    font-variant-numeric: tabular-nums;
+    padding: env(safe-area-inset-top, 0) 0 env(safe-area-inset-bottom, 0);
+    -webkit-tap-highlight-color: transparent;
+  }
+  .topo {
+    position: sticky; top: 0; z-index: 2;
+    background: var(--tinta); color: var(--papel);
+    padding: 14px 16px 12px;
+  }
+  .topo-linha { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; max-width: 720px; margin: 0 auto; }
+  .evento { font-size: 20px; font-weight: 800; letter-spacing: -0.01em; line-height: 1.15; }
+  .ao-vivo { font-size: 12px; color: #b9bcc4; white-space: nowrap; display: flex; align-items: center; gap: 6px; }
+  .ponto { width: 8px; height: 8px; border-radius: 50%; background: #4ade80; }
+  .ponto.off { background: var(--largada); }
+  @media (prefers-reduced-motion: no-preference) {
+    .ponto.pisca { animation: pisca 1.2s ease-out 1; }
+    @keyframes pisca { 0% { transform: scale(2.2); } 100% { transform: scale(1); } }
+  }
+  select.evento-sel {
+    margin-top: 10px; width: 100%; max-width: 720px; display: block; margin-left: auto; margin-right: auto;
+    padding: 10px; font-size: 15px; border-radius: 8px; border: 0;
+  }
+
+  main { max-width: 720px; margin: 0 auto; padding: 16px; }
+
+  .lider { padding: 8px 0 18px; border-bottom: 3px solid var(--tinta); margin-bottom: 14px; }
+  .lider-tempo { font-size: clamp(48px, 16vw, 84px); font-weight: 800; letter-spacing: -0.04em; line-height: 1; }
+  .lider-nome { font-size: 15px; color: var(--cinza); margin-top: 6px; }
+
+  .filtros { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }
+  .filtros button {
+    border: 1.5px solid var(--tinta); background: transparent; color: var(--tinta);
+    padding: 8px 14px; border-radius: 999px; font-size: 14px; font-weight: 600; cursor: pointer;
+  }
+  .filtros button[aria-pressed="true"] { background: var(--tinta); color: var(--papel); }
+  .filtros select { border: 1.5px solid var(--tinta); border-radius: 999px; padding: 8px 12px; font-size: 14px; background: transparent; color: var(--tinta); }
+  .busca { width: 100%; padding: 12px; font-size: 16px; border: 1.5px solid var(--linha); border-radius: 10px; background: #fff; margin-bottom: 8px; }
+  button:focus-visible, select:focus-visible, input:focus-visible { outline: 3px solid var(--largada); outline-offset: 2px; }
+
+  ol { list-style: none; }
+  li {
+    display: grid; grid-template-columns: 44px 1fr auto; align-items: center; gap: 10px;
+    padding: 12px 0; border-bottom: 1px solid var(--linha);
+  }
+  .pos { font-size: 22px; font-weight: 800; text-align: center; }
+  li:nth-child(-n+3) .pos { color: var(--ouro); }
+  .nome { font-size: 16px; font-weight: 600; line-height: 1.25; }
+  .detalhe { font-size: 12.5px; color: var(--cinza); margin-top: 2px; }
+  .tempo { font-size: 18px; font-weight: 700; }
+  .vazio { padding: 40px 0; color: var(--cinza); text-align: center; line-height: 1.6; }
+  .rodape { font-size: 12px; color: var(--cinza); text-align: center; padding: 18px 0 30px; }
+</style>
+</head>
+<body>
+  <header class="topo">
+    <div class="topo-linha">
+      <div class="evento" id="nomeEvento">Resultados</div>
+      <div class="ao-vivo"><span class="ponto" id="ponto"></span><span id="status">conectando</span></div>
+    </div>
+    <select class="evento-sel" id="seletorEvento" style="display:none;" aria-label="Escolher evento" onchange="trocarEvento(this.value)"></select>
+  </header>
+
+  <main>
+    <section class="lider" id="lider" style="display:none;">
+      <div class="lider-tempo" id="liderTempo"></div>
+      <div class="lider-nome" id="liderNome"></div>
+    </section>
+
+    <div class="filtros" role="group" aria-label="Filtrar">
+      <button type="button" data-f="geral" aria-pressed="true">Geral</button>
+      <button type="button" data-f="M" aria-pressed="false">Masculino</button>
+      <button type="button" data-f="F" aria-pressed="false">Feminino</button>
+      <select id="filtroCategoria" aria-label="Categoria"><option value="">Categoria</option></select>
+    </div>
+    <input class="busca" id="busca" type="search" placeholder="Buscar por nome ou número" aria-label="Buscar por nome ou número">
+
+    <ol id="lista"></ol>
+    <div class="rodape" id="rodape"></div>
+  </main>
+
+<script src="/socket.io/socket.io.js"></script>
+<script>
+let eventoId = null;
+let dados = [];
+let filtro = 'geral';
+
+function formatarTempo(t) {
+  if (!t) return '-';
+  const m = String(t).match(/(\d+):(\d+):(\d+)(?:\.(\d+))?/);
+  if (!m) return t;
+  const h = parseInt(m[1], 10), min = m[2], seg = m[3];
+  const dec = m[4] ? m[4].slice(0, 1) : '0';
+  return h > 0 ? `${h}:${min}:${seg}` : `${parseInt(min, 10)}:${seg}.${dec}`;
+}
+
+function esc(s) {
+  return String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+}
+
+async function iniciar() {
+  const param = new URLSearchParams(location.search).get('evento');
+  try {
+    const resp = await fetch('/eventos/ativos');
+    const eventos = await resp.json();
+    if (!eventos.length) {
+      document.getElementById('lista').innerHTML = '<div class="vazio">Nenhum evento aberto agora.</div>';
+      return;
+    }
+    const sel = document.getElementById('seletorEvento');
+    if (eventos.length > 1) {
+      sel.innerHTML = eventos.map(e => `<option value="${e.id}">${esc(e.nome)}</option>`).join('');
+      sel.style.display = '';
+    }
+    const escolhido = eventos.find(e => String(e.id) === param) || eventos[0];
+    sel.value = escolhido.id;
+    trocarEvento(escolhido.id, eventos);
+  } catch (e) {
+    document.getElementById('lista').innerHTML = '<div class="vazio">Não foi possível falar com o sistema. Confira se o celular está no Wi-Fi da corrida.</div>';
+  }
+}
+
+let listaEventos = [];
+function trocarEvento(id, eventos) {
+  if (eventos) listaEventos = eventos;
+  eventoId = Number(id);
+  const ev = listaEventos.find(e => e.id === eventoId);
+  document.getElementById('nomeEvento').textContent = ev ? ev.nome : 'Resultados';
+  document.title = `${ev ? ev.nome : 'Resultados'} — PontoCerto`;
+  carregar();
+}
+
+async function carregar() {
+  if (!eventoId) return;
+  try {
+    const resp = await fetch(`/eventos/${eventoId}/resultados`);
+    dados = await resp.json();
+    montarCategorias();
+    desenhar();
+    document.getElementById('rodape').textContent = `Atualizado às ${new Date().toLocaleTimeString('pt-BR')}`;
+  } catch (e) {
+    document.getElementById('rodape').textContent = 'Sem conexão com o sistema. Tentando de novo...';
+  }
+}
+
+function montarCategorias() {
+  const sel = document.getElementById('filtroCategoria');
+  const atual = sel.value;
+  const cats = [...new Map(dados.filter(d => d.categoria_id).map(d => [d.categoria_id, d.categoria_nome])).entries()];
+  sel.innerHTML = '<option value="">Categoria</option>' + cats.map(([id, nome]) => `<option value="${id}">${esc(nome)}</option>`).join('');
+  sel.value = cats.some(([id]) => String(id) === atual) ? atual : '';
+}
+
+function desenhar() {
+  const busca = document.getElementById('busca').value.trim().toLowerCase();
+  const cat = document.getElementById('filtroCategoria').value;
+
+  let lista = dados;
+  if (cat) lista = lista.filter(d => String(d.categoria_id) === cat);
+  else if (filtro === 'M' || filtro === 'F') lista = lista.filter(d => d.genero === filtro);
+
+  const lider = document.getElementById('lider');
+  if (lista.length) {
+    lider.style.display = '';
+    document.getElementById('liderTempo').textContent = formatarTempo(lista[0].tempo_total);
+    document.getElementById('liderNome').textContent = `1º ${lista[0].nome}`;
+  } else {
+    lider.style.display = 'none';
+  }
+
+  const comPosicao = lista.map((d, i) => ({ ...d, posicao: i + 1 }));
+  const visiveis = busca
+    ? comPosicao.filter(d => d.nome.toLowerCase().includes(busca) || String(d.numero) === busca)
+    : comPosicao;
+
+  const ol = document.getElementById('lista');
+  if (!dados.length) {
+    ol.innerHTML = '<div class="vazio">Ninguém cruzou a chegada ainda.<br>Esta tela atualiza sozinha.</div>';
+    return;
+  }
+  if (!visiveis.length) {
+    ol.innerHTML = '<div class="vazio">Nenhum atleta encontrado com esse filtro.</div>';
+    return;
+  }
+  ol.innerHTML = visiveis.map(d => `
+    <li>
+      <div class="pos">${d.posicao}º</div>
+      <div>
+        <div class="nome">${esc(d.nome)}</div>
+        <div class="detalhe">Nº ${d.numero}${d.categoria_nome ? ' — ' + esc(d.categoria_nome) : ''}</div>
+      </div>
+      <div class="tempo">${formatarTempo(d.tempo_total)}</div>
+    </li>
+  `).join('');
+}
+
+document.querySelectorAll('.filtros button').forEach(b => b.addEventListener('click', () => {
+  filtro = b.dataset.f;
+  document.getElementById('filtroCategoria').value = '';
+  document.querySelectorAll('.filtros button').forEach(x => x.setAttribute('aria-pressed', x === b ? 'true' : 'false'));
+  desenhar();
+}));
+document.getElementById('filtroCategoria').addEventListener('change', e => {
+  if (e.target.value) document.querySelectorAll('.filtros button').forEach(x => x.setAttribute('aria-pressed', 'false'));
+  else document.querySelector('.filtros button[data-f="geral"]').click();
+  desenhar();
+});
+document.getElementById('busca').addEventListener('input', desenhar);
+
+// Tempo real: o servidor avisa a cada chegada. O intervalo é só reserva.
+const ponto = document.getElementById('ponto');
+const status = document.getElementById('status');
+if (window.io) {
+  const socket = io();
+  socket.on('connect', () => { ponto.className = 'ponto'; status.textContent = 'ao vivo'; carregar(); });
+  socket.on('disconnect', () => { ponto.className = 'ponto off'; status.textContent = 'reconectando'; });
+  socket.on('resultado-atualizado', msg => {
+    if (!msg || Number(msg.evento_id) === eventoId) {
+      ponto.classList.remove('pisca');
+      void ponto.offsetWidth;
+      ponto.classList.add('pisca');
+      carregar();
+    }
+  });
+}
+setInterval(carregar, 20000);
+
+iniciar();
+</script>
+</body>
+</html>

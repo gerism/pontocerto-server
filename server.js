@@ -1,3 +1,5 @@
+// .env.local só existe no PC (modo local); no Railway ele não vai junto
+require('dotenv').config({ path: require('path').join(__dirname, '.env.local') });
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
@@ -15,10 +17,15 @@ const io = new Server(server, { cors: { origin: '*' } });
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  ssl: { rejectUnauthorized: false },
+  ssl: process.env.MODO_LOCAL ? false : { rejectUnauthorized: false },
 });
 
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
+const MODO_LOCAL = !!process.env.MODO_LOCAL;
+const SERVIDOR_ONLINE = (process.env.SERVIDOR_ONLINE || '').replace(/\/$/, '');
+
+// O admin usa pra saber se mostra a aba de sincronização
+app.get('/modo', (req, res) => res.json({ local: MODO_LOCAL }));
 
 // ============================================
 // ATLETAS
@@ -918,6 +925,202 @@ app.post('/admin/atletas-teste/excluir', async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ erro: 'Erro ao excluir atletas de teste.' });
+  }
+});
+
+// ============================================
+// SINCRONIZAÇÃO ONLINE <-> PC (modo local)
+// ============================================
+
+// --- Lado ONLINE (Railway): entrega tudo de um evento pro PC
+app.post('/admin/sync/exportar', async (req, res) => {
+  const { senha, evento_id } = req.body;
+  if (senha !== ADMIN_PASSWORD) return res.status(401).json({ erro: 'Senha incorreta.' });
+
+  try {
+    const evento = await pool.query('SELECT * FROM eventos WHERE id = $1', [evento_id]);
+    if (evento.rows.length === 0) return res.status(404).json({ erro: 'Evento não encontrado.' });
+    const categorias = await pool.query('SELECT * FROM categorias_evento WHERE evento_id = $1', [evento_id]);
+    const inscricoes = await pool.query('SELECT * FROM inscricoes WHERE evento_id = $1', [evento_id]);
+    const atletas = await pool.query(
+      'SELECT * FROM atletas WHERE id IN (SELECT atleta_id FROM inscricoes WHERE evento_id = $1)', [evento_id]
+    );
+    res.json({
+      evento: evento.rows[0],
+      categorias: categorias.rows,
+      atletas: atletas.rows,
+      inscricoes: inscricoes.rows
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ erro: 'Erro ao exportar evento.' });
+  }
+});
+
+// --- Lado ONLINE (Railway): recebe os horários do PC depois da corrida
+app.post('/admin/sync/importar-resultados', async (req, res) => {
+  const { senha, evento_id, inscricoes } = req.body;
+  if (senha !== ADMIN_PASSWORD) return res.status(401).json({ erro: 'Senha incorreta.' });
+  if (!Array.isArray(inscricoes)) return res.status(400).json({ erro: 'Lista de inscrições inválida.' });
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    let atualizados = 0;
+    for (const i of inscricoes) {
+      const r = await client.query(
+        `UPDATE inscricoes SET hora_largada = $1, hora_chegada = $2, tag_epc = $3, kit_entregue = $4
+         WHERE id = $5 AND evento_id = $6`,
+        [i.hora_largada, i.hora_chegada, i.tag_epc, !!i.kit_entregue, i.id, evento_id]
+      );
+      atualizados += r.rowCount;
+    }
+    await client.query('COMMIT');
+    io.emit('resultado-atualizado', { evento_id: Number(evento_id) });
+    res.json({ sucesso: true, atualizados });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error(err);
+    res.status(500).json({ erro: 'Erro ao importar resultados.' });
+  } finally {
+    client.release();
+  }
+});
+
+// --- Lado PC: funções auxiliares
+async function chamarOnline(rota, corpo) {
+  if (!SERVIDOR_ONLINE) throw new Error('SERVIDOR_ONLINE não configurado no .env.local');
+  let resp;
+  try {
+    resp = await fetch(`${SERVIDOR_ONLINE}${rota}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(corpo)
+    });
+  } catch (e) {
+    throw new Error('Sem conexão com o servidor online. Confira a internet.');
+  }
+  const dados = await resp.json();
+  if (!resp.ok) throw new Error(dados.erro || 'Erro no servidor online.');
+  return dados;
+}
+
+const colunasGeradasCache = {};
+async function colunasGeradas(client, tabela) {
+  if (!colunasGeradasCache[tabela]) {
+    const r = await client.query(
+      `SELECT column_name FROM information_schema.columns
+       WHERE table_name = $1 AND is_generated = 'ALWAYS'`, [tabela]
+    );
+    colunasGeradasCache[tabela] = r.rows.map(x => x.column_name);
+  }
+  return colunasGeradasCache[tabela];
+}
+
+// Insere (ou atualiza, se o id já existir) mantendo o mesmo id do online
+async function upsert(client, tabela, linha) {
+  const pular = await colunasGeradas(client, tabela);
+  const cols = Object.keys(linha).filter(c => !pular.includes(c));
+  const valores = cols.map(c => linha[c]);
+  const marcas = cols.map((_, i) => `$${i + 1}`);
+  const sets = cols.filter(c => c !== 'id').map(c => `${c} = EXCLUDED.${c}`);
+  await client.query(
+    `INSERT INTO ${tabela} (${cols.join(', ')}) VALUES (${marcas.join(', ')})
+     ON CONFLICT (id) DO UPDATE SET ${sets.join(', ')}`,
+    valores
+  );
+}
+
+async function acertarSequencia(client, tabela) {
+  await client.query(
+    `SELECT setval(pg_get_serial_sequence('${tabela}', 'id'), COALESCE((SELECT MAX(id) FROM ${tabela}), 1))`
+  );
+}
+
+// --- Lado PC: lista os eventos que existem no online
+app.post('/admin/sync/eventos-online', async (req, res) => {
+  const { senha } = req.body;
+  if (senha !== ADMIN_PASSWORD) return res.status(401).json({ erro: 'Senha incorreta.' });
+  try {
+    res.json(await chamarOnline('/admin/eventos/listar', { senha }));
+  } catch (err) {
+    res.status(502).json({ erro: err.message });
+  }
+});
+
+// --- Lado PC: baixa o evento do online e grava no Postgres do PC
+app.post('/admin/sync/baixar', async (req, res) => {
+  const { senha, evento_id } = req.body;
+  if (senha !== ADMIN_PASSWORD) return res.status(401).json({ erro: 'Senha incorreta.' });
+  if (!MODO_LOCAL) return res.status(400).json({ erro: 'Isso só funciona no servidor do PC.' });
+
+  let dados;
+  try {
+    dados = await chamarOnline('/admin/sync/exportar', { senha, evento_id });
+  } catch (err) {
+    return res.status(502).json({ erro: err.message });
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    // limpa o que o PC tinha desse evento e grava de novo igual ao online
+    await client.query('DELETE FROM inscricoes WHERE evento_id = $1', [evento_id]);
+    await client.query('DELETE FROM categorias_evento WHERE evento_id = $1', [evento_id]);
+
+    // atleta antigo do PC com mesmo CPF/aparelho mas id diferente atrapalharia
+    const ids = dados.atletas.map(a => a.id);
+    const cpfs = dados.atletas.map(a => a.cpf);
+    const devs = dados.atletas.map(a => a.device_id);
+    await client.query(
+      `DELETE FROM inscricoes WHERE atleta_id IN (
+         SELECT id FROM atletas WHERE NOT (id = ANY($1::int[])) AND (cpf = ANY($2::text[]) OR device_id = ANY($3::text[])))`,
+      [ids, cpfs, devs]
+    );
+    await client.query(
+      `DELETE FROM atletas WHERE NOT (id = ANY($1::int[])) AND (cpf = ANY($2::text[]) OR device_id = ANY($3::text[]))`,
+      [ids, cpfs, devs]
+    );
+
+    await upsert(client, 'eventos', dados.evento);
+    for (const c of dados.categorias) await upsert(client, 'categorias_evento', c);
+    for (const a of dados.atletas) await upsert(client, 'atletas', a);
+    for (const i of dados.inscricoes) await upsert(client, 'inscricoes', i);
+
+    for (const t of ['eventos', 'categorias_evento', 'atletas', 'inscricoes']) await acertarSequencia(client, t);
+
+    await client.query('COMMIT');
+    res.json({
+      sucesso: true,
+      evento: dados.evento.nome,
+      inscritos: dados.inscricoes.filter(i => i.pagamento_status === 'pago').length
+    });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error(err);
+    res.status(500).json({ erro: 'Erro ao gravar no PC: ' + err.message });
+  } finally {
+    client.release();
+  }
+});
+
+// --- Lado PC: manda largadas, chegadas e tags pro online
+app.post('/admin/sync/enviar', async (req, res) => {
+  const { senha, evento_id } = req.body;
+  if (senha !== ADMIN_PASSWORD) return res.status(401).json({ erro: 'Senha incorreta.' });
+  if (!MODO_LOCAL) return res.status(400).json({ erro: 'Isso só funciona no servidor do PC.' });
+
+  try {
+    const r = await pool.query(
+      `SELECT id, hora_largada, hora_chegada, tag_epc, kit_entregue
+       FROM inscricoes WHERE evento_id = $1 AND pagamento_status = 'pago'`,
+      [evento_id]
+    );
+    const resposta = await chamarOnline('/admin/sync/importar-resultados', { senha, evento_id, inscricoes: r.rows });
+    res.json(resposta);
+  } catch (err) {
+    res.status(502).json({ erro: err.message });
   }
 });
 
