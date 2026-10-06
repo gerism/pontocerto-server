@@ -547,6 +547,7 @@ async function carregarEventos() {
       <div class="evento-item" onclick="selecionarEvento(${e.id}, this)">
         <button class="btn-excluir-evento" onclick="event.stopPropagation(); excluirEvento(${e.id}, '${e.nome.replace(/'/g, "\\'")}')">🗑️</button>
         <button class="btn-excluir-evento" style="border-color:#ff6a3d; color:#ff6a3d; margin-right:6px;" onclick="event.stopPropagation(); editarEvento(${e.id})">✏️</button>
+        <button class="btn-excluir-evento" style="border-color:#4ade80; color:#4ade80; margin-right:6px;" title="Copiar link de inscrição" onclick="event.stopPropagation(); copiarLinkInscricao('${e.codigo}', this)">🔗 Link</button>
         <div class="evento-nome">${e.nome}
           <span class="evento-badge ${e.ativo ? 'badge-ativo' : 'badge-encerrado'}">${e.ativo ? 'ABERTO' : 'ENCERRADO'}</span>
         </div>
@@ -1282,6 +1283,7 @@ function cancelarEdicao() {
 let eventoSelecionadoSync = null;
 
 fetch('/modo').then(r => r.json()).then(m => {
+  if (m.online) enderecoOnline = m.online;
   if (m.local) {
     document.getElementById('tabSync').style.display = '';
     document.getElementById('badgeModo').style.display = '';
@@ -1361,6 +1363,23 @@ function enviarResultados() {
 function alternarGratuito() {
   const gratis = document.getElementById('gratuitoCriar').checked;
   document.getElementById('blocoValorCriar').style.display = gratis ? 'none' : '';
+}
+
+// Link de inscrição sempre aponta pro servidor online (onde o Pix funciona),
+// mesmo copiado do admin do PC.
+let enderecoOnline = null;
+async function copiarLinkInscricao(codigo, botao) {
+  const base = enderecoOnline || location.origin;
+  const link = `${base}/inscricao.html?evento=${encodeURIComponent(codigo)}`;
+  try {
+    await navigator.clipboard.writeText(link);
+  } catch (e) {
+    prompt('Copie o link:', link);
+    return;
+  }
+  const antes = botao.textContent;
+  botao.textContent = '✅ Copiado';
+  setTimeout(() => botao.textContent = antes, 2000);
 }
 atualizarBotoesCrono();
 </script>

@@ -29,7 +29,7 @@ const MODO_LOCAL = !!process.env.MODO_LOCAL;
 const SERVIDOR_ONLINE = (process.env.SERVIDOR_ONLINE || '').replace(/\/$/, '');
 
 // O admin usa pra saber se mostra a aba de sincronização
-app.get('/modo', (req, res) => res.json({ local: MODO_LOCAL }));
+app.get('/modo', (req, res) => res.json({ local: MODO_LOCAL, online: SERVIDOR_ONLINE || null }));
 
 // ============================================
 // ATLETAS
