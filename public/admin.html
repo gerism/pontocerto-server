@@ -944,13 +944,22 @@ function atualizarBotoesCrono(horaLargada) {
     btnC.disabled = false; btnC.style.cssText = ativo; btnC.textContent = '🏁 Finalizar e ver resultados';
     leitor.disabled = false; leitor.placeholder = 'Lendo tags: 1ª passagem = largada, 2ª = chegada...';
   } else {
-    btnL.disabled = true; btnL.style.cssText = inativo;
+    btnL.disabled = false; btnL.style.cssText = 'flex:1; background:#1a1d24; color:#f3ede4; border:1px solid #2c3038;';
+    btnL.textContent = '▶️ Continuar lendo';
     btnC.disabled = true; btnC.style.cssText = inativo; btnC.textContent = '🏁 Corrida finalizada';
     leitor.disabled = true; leitor.placeholder = 'Corrida finalizada';
   }
 }
 
 function iniciarCorrida() {
+  // depois de finalizada, o mesmo botão reabre a leitura (atleta atrasado)
+  if (estadoCrono === 'finalizada') {
+    estadoCrono = 'correndo';
+    atualizarBotoesCrono();
+    logCrono('<span class="ok">▶️ Leitura reaberta</span>');
+    focarLeitor();
+    return;
+  }
   const senha = document.getElementById('senhaCrono').value.trim();
   if (!senha || !eventoSelecionadoCrono) {
     alert('Preenche a senha e escolhe o evento primeiro.');
@@ -964,9 +973,9 @@ function iniciarCorrida() {
   focarLeitor();
 }
 
-function finalizarCorrida() {
+function finalizarCorrida(automatico = false) {
   if (estadoCrono !== 'correndo') return;
-  if (!confirm('Finalizar a corrida e ver os resultados?')) return;
+  if (!automatico && !confirm('Finalizar a corrida e ver os resultados?')) return;
 
   estadoCrono = 'finalizada';
   atualizarBotoesCrono();
@@ -1049,7 +1058,12 @@ async function registrarLeituraCrono(campo) {
       if (dados.tipo === 'largada') {
         logCrono(`<span class="ok">🟢 ${dados.nome}</span> <span style="color:#9a9ba3;">— largou às ${hora}</span>`);
       } else {
-        logCrono(`<span class="ok">🏁 ${dados.nome}</span> <span style="color:#9a9ba3;">— chegou às ${hora} · tempo ${formatarTempoAdmin(dados.tempo_total)}</span>`);
+        logCrono(`<span class="ok">🏁 ${dados.nome}</span> <span style="color:#9a9ba3;">— chegou às ${hora} · tempo ${formatarTempoAdmin(dados.tempo_total)}${dados.faltam ? ` · ${dados.faltam} ainda na pista` : ''}</span>`);
+        // último que largou acabou de chegar: mostra os resultados sozinho
+        if (dados.faltam === 0) {
+          logCrono('<span class="ok">✅ Todos que largaram já chegaram</span>');
+          setTimeout(() => finalizarCorrida(true), 1500);
+        }
       }
       status.textContent = '';
     } else if ((dados.erro || '').includes('Acabou de largar')) {

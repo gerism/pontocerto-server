@@ -747,7 +747,14 @@ app.post('/admin/eventos/:id/leitura-rfid', async (req, res) => {
       );
       if (cheg.rows.length) {
         io.emit('resultado-atualizado', { evento_id: Number(id) });
-        return res.json({ tipo: 'chegada', nome, horario: cheg.rows[0].hora_chegada, tempo_total: cheg.rows[0].tempo_total });
+        // quantos largaram e ainda estão na pista
+        const pista = await pool.query(
+          `SELECT COUNT(*)::int AS faltam FROM inscricoes
+           WHERE evento_id = $1 AND pagamento_status = 'pago'
+             AND hora_largada IS NOT NULL AND hora_chegada IS NULL`,
+          [id]
+        );
+        return res.json({ tipo: 'chegada', nome, horario: cheg.rows[0].hora_chegada, tempo_total: cheg.rows[0].tempo_total, faltam: pista.rows[0].faltam });
       }
 
       // 3) já chegou, ou largou agora há pouco (ainda passando na antena)
