@@ -710,65 +710,52 @@ async function carregarResultados() {
       return;
     }
 
-    window.__resultadosAtuais = dados; // guarda pra reusar quando trocar a categoria no seletor
-
-    const categorias = [...new Set(dados.map(r => r.categoria_nome || 'Sem categoria'))];
-
-    resultado.innerHTML = `
-      <div style="display:flex; gap:16px; margin-top:16px;">
-        <div style="flex:1; min-width:0;">
-          <h2 style="font-size:14px; margin:0 0 10px; color:#e8a33d;">🏆 Geral</h2>
-          <div id="colunaGeral"></div>
-        </div>
-        <div style="flex:1; min-width:0;">
-          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
-            <h2 style="font-size:14px; margin:0; color:#e8a33d;">📌 Categoria</h2>
-            <select id="seletorCategoria" onchange="renderizarCategoriaSelecionada()" style="width:auto; padding:6px 8px; font-size:12px;">
-              ${categorias.map(c => `<option value="${c}">${c}</option>`).join('')}
-            </select>
-          </div>
-          <div id="colunaCategoria"></div>
-        </div>
-      </div>
-    `;
-
-    renderizarGeral(dados);
-    renderizarCategoriaSelecionada();
+    resultado.innerHTML = montarResultadosCompletos(dados);
   } catch (e) {
     resultado.innerHTML = '<span class="erro">❌ Erro de conexão com o servidor.</span>';
   }
 }
 
-function renderizarGeral(dados) {
-  document.getElementById('colunaGeral').innerHTML = `
-    <div style="max-height:400px; overflow-y:auto;">
-      ${dados.map(r => `
-        <div style="display:flex; justify-content:space-between; padding:8px 4px; border-bottom:1px solid #362a41; font-size:12.5px;">
-          <span>${r.posicao_geral}º ${r.nome}</span>
-          <span style="color:#9a9ba3;">${r.tempo_total}</span>
+function formatarTempoAdmin(t) {
+  const m = String(t || '').match(/(\d+):(\d+):(\d+)(?:\.(\d+))?/);
+  if (!m) return t || '-';
+  const h = parseInt(m[1], 10);
+  const dec = m[4] ? m[4].slice(0, 1) : '0';
+  return h > 0 ? `${h}:${m[2]}:${m[3]}` : `${parseInt(m[2], 10)}:${m[3]}.${dec}`;
+}
+
+function blocoRanking(titulo, lista, destaque) {
+  if (!lista.length) return '';
+  return `
+    <div style="background:#16181d; border:1px solid ${destaque ? '#ff6a3d' : '#2c3038'}; border-radius:10px; padding:12px; break-inside:avoid; margin-bottom:14px;">
+      <h2 style="font-size:13.5px; margin:0 0 8px; color:${destaque ? '#ff6a3d' : '#e8a33d'};">${titulo}</h2>
+      ${lista.map((r, i) => `
+        <div style="display:flex; justify-content:space-between; gap:8px; padding:6px 2px; border-bottom:1px solid #262a31; font-size:12.5px;">
+          <span><b style="color:${i < 3 ? '#e8a33d' : '#f3ede4'};">${i + 1}º</b> ${r.nome}</span>
+          <span style="color:#9a9ba3; white-space:nowrap;">${formatarTempoAdmin(r.tempo_total)}</span>
         </div>
       `).join('')}
     </div>
   `;
 }
 
-function renderizarCategoriaSelecionada() {
-  const dados = window.__resultadosAtuais || [];
-  const categoriaEscolhida = document.getElementById('seletorCategoria').value;
-  const filtrados = dados
-    .filter(r => (r.categoria_nome || 'Sem categoria') === categoriaEscolhida)
-    .sort((a, b) => a.posicao_categoria - b.posicao_categoria);
+// Todas as classificações numa tela só. A lista já vem ordenada por tempo,
+// então cada filtro mantém a ordem e a posição é só o índice.
+function montarResultadosCompletos(dados) {
+  const categorias = [...new Map(
+    dados.map(r => [r.categoria_id ?? 'sem', r.categoria_nome || 'Sem categoria'])
+  ).entries()];
+  const masc = dados.filter(r => r.sexo === 'M');
+  const fem = dados.filter(r => r.sexo === 'F');
+  const porCategoria = (lista, id) => lista.filter(r => (r.categoria_id ?? 'sem') === id);
 
-  document.getElementById('colunaCategoria').innerHTML = `
-    <div style="max-height:400px; overflow-y:auto;">
-      ${filtrados.map(r => `
-        <div style="display:flex; justify-content:space-between; padding:8px 4px; border-bottom:1px solid #362a41; font-size:12.5px;">
-          <span>${r.posicao_categoria}º ${r.nome}</span>
-          <span style="color:#9a9ba3;">${r.tempo_total}</span>
-        </div>
-      `).join('')}
-    </div>
-  `;
+  let html = blocoRanking('🏆 Geral', dados, true);
+  html += blocoRanking('♂️ Geral Masculino', masc, true);
+  categorias.forEach(([id, nome]) => { html += blocoRanking(`♂️ ${nome} — Masculino`, porCategoria(masc, id)); });
+  html += blocoRanking('♀️ Geral Feminino', fem, true);
+  categorias.forEach(([id, nome]) => { html += blocoRanking(`♀️ ${nome} — Feminino`, porCategoria(fem, id)); });
+
+  return `<div style="column-width:260px; column-gap:14px; margin-top:16px;">${html}</div>`;
 }
 
 // ============================================
@@ -990,8 +977,11 @@ async function registrarLeituraCrono(campo) {
       const hora = new Date(dados.horario).toLocaleTimeString('pt-BR');
       logCrono(`<span class="ok">${icone} ${dados.nome}</span> <span style="color:#9a9ba3;">— ${modoCrono} às ${hora}</span>`);
       status.textContent = '';
+    } else if ((dados.erro || '').includes('já tem chegada')) {
+      // tag de quem já chegou continua sendo lida: ignora sem poluir a lista
+      ultimasLeiturasCrono[chave] = Infinity;
+      status.textContent = `Já chegou, leitura ignorada (${tag})`;
     } else {
-      delete ultimasLeiturasCrono[chave];
       logCrono(`<span class="erro">❌ ${tag}: ${dados.erro || 'não registrada'}</span>`);
     }
   } catch (e) {
