@@ -1222,6 +1222,8 @@ async function acaoSync(rota, pergunta, sucesso) {
   const senha = document.getElementById('senhaSync').value.trim();
   if (!senha || !eventoSelecionadoSync) { alert('Preenche a senha e escolhe o evento.'); return; }
   if (!confirm(pergunta)) return;
+  // uma mensagem só por vez: a nova substitui a anterior
+  document.getElementById('logSync').innerHTML = '';
   logSync('<span style="color:#9a9ba3;">Aguarde...</span>');
   try {
     const resp = await fetch(rota, {
@@ -1230,16 +1232,18 @@ async function acaoSync(rota, pergunta, sucesso) {
       body: JSON.stringify({ senha, evento_id: eventoSelecionadoSync })
     });
     const dados = await resp.json();
+    document.getElementById('logSync').innerHTML = '';
     if (resp.ok) logSync(`<span class="ok">✅ ${sucesso(dados)}</span>`);
     else logSync(`<span class="erro">❌ ${dados.erro}</span>`);
   } catch (e) {
+    document.getElementById('logSync').innerHTML = '';
     logSync('<span class="erro">❌ Erro de conexão.</span>');
   }
 }
 
 function baixarEvento() {
   acaoSync('/admin/sync/baixar',
-    'Baixar o evento pro PC? O que o PC tiver desse evento será substituído pelo que está online.',
+    'Baixar o evento pro PC?\n\nATENÇÃO: tudo que o PC tem desse evento (atletas de teste, tags vinculadas aqui, largadas e chegadas) será APAGADO e trocado pelo que está online.',
     d => `"${d.evento}" baixado — ${d.inscritos} inscrito(s) pago(s).`);
 }
 
