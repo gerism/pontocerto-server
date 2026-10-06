@@ -579,10 +579,36 @@ app.post('/admin/eventos/:id/excluir', async (req, res) => {
   if (senha !== ADMIN_PASSWORD) return res.status(401).json({ erro: 'Senha incorreta.' });
 
   try {
-    const result = await pool.query('DELETE FROM eventos WHERE id = $1 RETURNING nome', [id]);
+    const result = await pool.query('DELETE FROM eventos WHERE id = $1 RETURNING nome, codigo', [id]);
     if (result.rows.length === 0) {
       return res.status(404).json({ erro: 'Evento não encontrado.' });
     }
+
+    // No PC, apaga também no servidor online (pelo código do evento, que é
+    // o mesmo nos dois lados). Sem internet, avisa e apaga só no PC.
+    let online = null;
+    if (MODO_LOCAL) {
+      try {
+        await chamarOnline('/admin/eventos/excluir-por-codigo', { senha, codigo: result.rows[0].codigo });
+        online = 'excluido';
+      } catch (e) {
+        online = e.message.includes('não encontrado') ? 'nao-existia' : 'falhou';
+      }
+    }
+    res.json({ sucesso: true, nome: result.rows[0].nome, online });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ erro: 'Erro ao excluir evento.' });
+  }
+});
+
+// Usado pelo PC pra apagar o mesmo evento aqui no online
+app.post('/admin/eventos/excluir-por-codigo', async (req, res) => {
+  const { senha, codigo } = req.body;
+  if (senha !== ADMIN_PASSWORD) return res.status(401).json({ erro: 'Senha incorreta.' });
+  try {
+    const result = await pool.query('DELETE FROM eventos WHERE codigo = $1 RETURNING nome', [String(codigo || '').toUpperCase()]);
+    if (result.rows.length === 0) return res.status(404).json({ erro: 'Evento não encontrado.' });
     res.json({ sucesso: true, nome: result.rows[0].nome });
   } catch (err) {
     console.error(err);

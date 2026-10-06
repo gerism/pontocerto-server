@@ -554,7 +554,7 @@ async function excluirEvento(id, nome) {
     alert('Preenche a senha antes de excluir.');
     return;
   }
-  if (!confirm(`Tem certeza que quer excluir "${nome}"?\n\nIsso apaga o evento, suas categorias e todas as inscrições dele. Não pode ser desfeito.`)) return;
+  if (!confirm(`Tem certeza que quer excluir "${nome}"?\n\nIsso apaga o evento, suas categorias e todas as inscrições dele (no PC e no servidor online). Não pode ser desfeito.`)) return;
 
   try {
     const resp = await fetch(`/admin/eventos/${id}/excluir`, {
@@ -565,7 +565,12 @@ async function excluirEvento(id, nome) {
     const dados = await resp.json();
 
     if (resp.ok) {
-      alert(`"${dados.nome}" foi excluído.`);
+      const avisos = {
+        'excluido': '\nTambém foi excluído do servidor online.',
+        'nao-existia': '\nNo servidor online ele já não existia.',
+        'falhou': '\n⚠️ Sem conexão com o servidor online: lá ele NÃO foi excluído. Exclua de novo quando tiver internet, ou pelo admin online.'
+      };
+      alert(`"${dados.nome}" foi excluído.${avisos[dados.online] || ''}`);
       carregarEventos();
     } else {
       alert(`❌ ${dados.erro || 'Não foi possível excluir.'}`);
