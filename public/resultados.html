@@ -67,7 +67,8 @@
   li:nth-child(-n+3) .pos { color: var(--ouro); }
   .nome { font-size: 16px; font-weight: 600; line-height: 1.25; }
   .detalhe { font-size: 12.5px; color: var(--cinza); margin-top: 2px; }
-  .tempo { font-size: 18px; font-weight: 700; }
+  .tempo { font-size: 18px; font-weight: 700; text-align: right; }
+  .vel { font-size: 12px; font-weight: 500; color: var(--cinza); margin-top: 2px; }
   .vazio { padding: 40px 0; color: var(--cinza); text-align: center; line-height: 1.6; }
   li { cursor: pointer; }
   li:active { background: #eceae3; }
@@ -75,6 +76,12 @@
   body.vendo-meu main > *:not(.meu) { display: none; }
   body.vendo-meu .meu { display: block; }
   .voltar { background: none; border: 0; font-size: 15px; font-weight: 600; color: var(--tinta); padding: 6px 0 14px; cursor: pointer; }
+  .peito { display: inline-block; font-size: clamp(56px, 20vw, 96px); font-weight: 900; line-height: 1;
+    border: 4px solid var(--tinta); border-radius: 14px; padding: 6px 20px 10px; margin-bottom: 14px; letter-spacing: -0.02em; }
+  .peito small { display: block; font-size: 13px; font-weight: 700; letter-spacing: .08em; text-align: center; margin-bottom: 2px; }
+  .extras { display: flex; gap: 22px; margin-top: 14px; }
+  .extras b { display: block; font-size: 22px; font-weight: 800; }
+  .extras span { font-size: 13px; color: var(--cinza); }
   .meu-nome { font-size: 24px; font-weight: 800; line-height: 1.2; }
   .meu-sub { color: var(--cinza); font-size: 14px; margin-top: 4px; }
   .meu-tempo { font-size: clamp(52px, 18vw, 88px); font-weight: 800; letter-spacing: -0.04em; line-height: 1; margin: 18px 0 6px; }
@@ -113,10 +120,12 @@
     <div class="rodape" id="rodape"></div>
     <section class="meu" id="meu" aria-live="polite">
       <button type="button" class="voltar" onclick="fecharMeu()">← Todos os resultados</button>
+      <div class="peito" id="meuNumero"></div>
       <div class="meu-nome" id="meuNome"></div>
       <div class="meu-sub" id="meuSub"></div>
       <div class="meu-tempo" id="meuTempo"></div>
       <div class="meu-rotulo">tempo</div>
+      <div class="extras" id="meuExtras"></div>
       <div class="posicoes" id="meuPosicoes"></div>
     </section>
   </main>
@@ -135,6 +144,27 @@ function formatarTempo(t) {
   const h = parseInt(m[1], 10), min = m[2], seg = m[3];
   const dec = m[4] ? m[4].slice(0, 1) : '0';
   return h > 0 ? `${h}:${min}:${seg}` : `${parseInt(min, 10)}:${seg}.${dec}`;
+}
+
+// tempo "00:25:13.4" -> segundos
+function segundos(t) {
+  const m = String(t || '').match(/(\d+):(\d+):(\d+(?:\.\d+)?)/);
+  return m ? Number(m[1]) * 3600 + Number(m[2]) * 60 + Number(m[3]) : 0;
+}
+function distanciaEvento() {
+  const ev = listaEventos.find(e => e.id === eventoId);
+  return ev && ev.distancia_km ? Number(ev.distancia_km) : 0;
+}
+function velocidade(t) {
+  const km = distanciaEvento(), s = segundos(t);
+  if (!km || !s) return '';
+  return (km / (s / 3600)).toFixed(1).replace('.', ',') + ' km/h';
+}
+function ritmo(t) {
+  const km = distanciaEvento(), s = segundos(t);
+  if (!km || !s) return '';
+  const porKm = Math.round(s / km);
+  return `${Math.floor(porKm / 60)}:${String(porKm % 60).padStart(2, '0')} /km`;
 }
 
 function esc(s) {
@@ -235,7 +265,7 @@ function desenhar() {
         <div class="nome">${esc(d.nome)}</div>
         <div class="detalhe">Nº ${d.numero}${d.categoria_nome ? ' — ' + esc(d.categoria_nome) : ''}</div>
       </div>
-      <div class="tempo">${formatarTempo(d.tempo_total)}</div>
+      <div class="tempo">${formatarTempo(d.tempo_total)}${velocidade(d.tempo_total) ? `<div class="vel">${velocidade(d.tempo_total)}</div>` : ''}</div>
     </li>
   `).join('');
 }
@@ -249,8 +279,14 @@ function abrirMeu(numero) {
   const pos = (lista) => lista.findIndex(x => x === d) + 1;
   const sexo = dados.filter(x => x.genero === d.genero);
   const cat = dados.filter(x => x.categoria_id === d.categoria_id);
+  document.getElementById('meuNumero').innerHTML = `<small>Nº</small>${d.numero}`;
   document.getElementById('meuNome').textContent = d.nome;
-  document.getElementById('meuSub').textContent = `Nº ${d.numero}` + (d.categoria_nome ? ` — ${d.categoria_nome}` : '');
+  const km = distanciaEvento();
+  document.getElementById('meuExtras').innerHTML = km ? `
+    <div><b>${velocidade(d.tempo_total)}</b><span>velocidade média</span></div>
+    <div><b>${ritmo(d.tempo_total)}</b><span>ritmo (pace)</span></div>
+    <div><b>${String(km).replace('.', ',')} km</b><span>distância</span></div>` : '';
+  document.getElementById('meuSub').textContent = d.categoria_nome || '';
   document.getElementById('meuTempo').textContent = formatarTempo(d.tempo_total);
   const linha = (rotulo, p, total) => `<div><span>${rotulo}</span><span><b>${p}º</b><small>de ${total}</small></span></div>`;
   document.getElementById('meuPosicoes').innerHTML =

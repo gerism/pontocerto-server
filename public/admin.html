@@ -186,6 +186,9 @@
       <label>Data da corrida *</label>
       <input type="date" id="dataCriar">
 
+      <label>Distância da prova (km)</label>
+      <input type="number" id="distanciaCriar" placeholder="Ex: 5 ou 10,5" step="0.01" inputmode="decimal">
+
       <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
         <input type="checkbox" id="gratuitoCriar" style="width:auto;" onchange="alternarGratuito()">
         Inscrição gratuita (sem Pix — confirma na hora)
@@ -475,6 +478,7 @@ async function criarEvento() {
   const valor_inscricao = document.getElementById('valorCriar').value;
   const oferece_camisa = document.getElementById('ofereceCamisaCriar').checked;
   const gratuito = document.getElementById('gratuitoCriar').checked;
+  const distancia_km = document.getElementById('distanciaCriar').value;
   const categorias = coletarCategorias();
   const resultado = document.getElementById('resultadoCriar');
   const btn = document.getElementById('btnCriar');
@@ -496,7 +500,7 @@ async function criarEvento() {
     const resp = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ senha, nome, codigo, data_evento, valor_inscricao, categorias, oferece_camisa, gratuito })
+      body: JSON.stringify({ senha, nome, codigo, data_evento, valor_inscricao, categorias, oferece_camisa, gratuito, distancia_km })
     });
     const dados = await resp.json();
 
@@ -509,6 +513,7 @@ async function criarEvento() {
       document.getElementById('codigoCriar').value = '';
       document.getElementById('dataCriar').value = '';
       document.getElementById('valorCriar').value = '';
+      document.getElementById('distanciaCriar').value = '';
       document.getElementById('ofereceCamisaCriar').checked = false;
       document.getElementById('gratuitoCriar').checked = false;
       alternarGratuito();
@@ -642,7 +647,7 @@ async function carregarInscritos() {
         <tr><th>Nº</th><th>Nome</th><th>Idade</th><th>Categoria</th><th>Sexo</th><th>Camisa</th><th>Tag</th><th>Pronto</th></tr>
         ${inscritos.map(i => `
           <tr id="linha-${i.inscricao_id}" class="${i.kit_entregue ? 'linha-pronta' : ''}">
-            <td>${i.inscricao_id}</td>
+            <td>${i.numero_peito ?? '-'}</td>
             <td>${i.nome}</td>
             <td>${i.idade}</td>
             <td>${i.categoria_nome || '⚠️ sem categoria'}</td>
@@ -697,6 +702,7 @@ async function carregarEventosResultados() {
       return;
     }
 
+    window.__eventosResultados = eventos;
     container.innerHTML = eventos.map(e => `
       <div class="evento-item" onclick="selecionarEventoResultados(${e.id}, this)">
         <div class="evento-nome">${e.nome}
@@ -801,6 +807,13 @@ function imprimirResultados() {
   const sel = document.querySelector('#listaEventosResultados .evento-item.selecionado .evento-nome');
   const nomeEvento = sel ? sel.childNodes[0].textContent.trim() : 'Resultados';
   const esc = t => String(t ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const evSel = (window.__eventosResultados || []).find(e => e.id === eventoSelecionadoResultados);
+  const km = evSel && evSel.distancia_km ? Number(evSel.distancia_km) : 0;
+  const kmh = t => {
+    const m = String(t || '').match(/(\d+):(\d+):(\d+(?:\.\d+)?)/);
+    const s = m ? Number(m[1]) * 3600 + Number(m[2]) * 60 + Number(m[3]) : 0;
+    return km && s ? (km / (s / 3600)).toFixed(1).replace('.', ',') : '';
+  };
 
   const categorias = [...new Map(
     dados.map(r => [r.categoria_id ?? 'sem', r.categoria_nome || 'Sem categoria'])
@@ -813,7 +826,7 @@ function imprimirResultados() {
     <section>
       <h2>${esc(titulo)}</h2>
       <table>
-        <thead><tr><th class="c">Pos.</th><th class="c">Nº</th><th>Nome</th><th class="c">Idade</th><th>Categoria</th><th class="d">Tempo</th></tr></thead>
+        <thead><tr><th class="c">Pos.</th><th class="c">Nº</th><th>Nome</th><th class="c">Idade</th><th>Categoria</th><th class="d">Tempo</th>${km ? '<th class="d">km/h</th>' : ''}</tr></thead>
         <tbody>
           ${lista.map((r, i) => `<tr>
             <td class="c">${i + 1}º</td>
@@ -822,6 +835,7 @@ function imprimirResultados() {
             <td class="c">${r.idade ?? ''}</td>
             <td>${esc(r.categoria_nome || 'Sem categoria')}</td>
             <td class="d">${formatarTempoAdmin(r.tempo_total)}</td>
+            ${km ? `<td class="d">${kmh(r.tempo_total)}</td>` : ''}
           </tr>`).join('')}
         </tbody>
       </table>
@@ -858,7 +872,7 @@ function imprimirResultados() {
     </style></head><body>
     <div class="barra"><button onclick="window.print()">🖨️ Imprimir / salvar PDF</button></div>
     <header><h1>${esc(nomeEvento)} — Resultados</h1>
-      <p>${dados.length} atleta(s) classificado(s) · gerado em ${new Date().toLocaleString('pt-BR')}</p></header>
+      <p>${km ? String(km).replace('.', ',') + ' km · ' : ''}${dados.length} atleta(s) classificado(s) · gerado em ${new Date().toLocaleString('pt-BR')}</p></header>
     ${corpo}
     </body></html>`);
   janela.document.close();
@@ -1148,7 +1162,7 @@ function logTeste(html) {
 
 function linhaAtletaTeste(a) {
   const cat = a.categoria || '⚠️ sem categoria';
-  return `<span class="ok">✅ Nº ${a.inscricao_id} — ${a.nome}</span> <span style="color:#9a9ba3;">· ${a.idade} anos · ${a.sexo || '-'} · ${cat}</span>`;
+  return `<span class="ok">✅ Nº ${a.numero ?? a.inscricao_id} — ${a.nome}</span> <span style="color:#9a9ba3;">· ${a.idade} anos · ${a.sexo || '-'} · ${cat}</span>`;
 }
 
 async function carregarEventosTeste() {
@@ -1260,6 +1274,7 @@ async function editarEvento(id) {
     document.getElementById('valorCriar').value = ev.valor_inscricao;
     document.getElementById('ofereceCamisaCriar').checked = !!ev.oferece_camisa;
     document.getElementById('gratuitoCriar').checked = !!ev.gratuito;
+    document.getElementById('distanciaCriar').value = ev.distancia_km ? Number(ev.distancia_km) : '';
     alternarGratuito();
     document.getElementById('listaCategorias').innerHTML = '';
     ev.categorias.forEach(c => adicionarCategoria(c.nome, c.idade_min, c.idade_max, c.sexo || '', c.id));
@@ -1276,7 +1291,7 @@ async function editarEvento(id) {
 
 function cancelarEdicao() {
   eventoEmEdicao = null;
-  ['nomeCriar', 'codigoCriar', 'dataCriar', 'valorCriar'].forEach(i => document.getElementById(i).value = '');
+  ['nomeCriar', 'codigoCriar', 'dataCriar', 'valorCriar', 'distanciaCriar'].forEach(i => document.getElementById(i).value = '');
   document.getElementById('ofereceCamisaCriar').checked = false;
   document.getElementById('gratuitoCriar').checked = false;
   alternarGratuito();

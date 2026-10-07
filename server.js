@@ -25,7 +25,8 @@ const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
 // Ajustes de banco que rodam sozinhos ao ligar (no Railway e no PC).
 pool.query(`ALTER TABLE eventos
              ADD COLUMN IF NOT EXISTS gratuito BOOLEAN NOT NULL DEFAULT false,
-             ADD COLUMN IF NOT EXISTS inscricoes_abertas BOOLEAN NOT NULL DEFAULT true`)
+             ADD COLUMN IF NOT EXISTS inscricoes_abertas BOOLEAN NOT NULL DEFAULT true,
+             ADD COLUMN IF NOT EXISTS distancia_km NUMERIC(6,2)`)
   .then(() => pool.query(`ALTER TABLE inscricoes ADD COLUMN IF NOT EXISTS numero_peito INT`))
   .then(() => pool.query(`
     UPDATE inscricoes i SET numero_peito = n.num
@@ -123,7 +124,7 @@ app.get('/atletas/meu', async (req, res) => {
 app.get('/eventos/ativos', async (req, res) => {
   try {
     const result = await pool.query(
-      `SELECT id, nome, codigo, data_evento, valor_inscricao, oferece_camisa, gratuito, inscricoes_abertas
+      `SELECT id, nome, codigo, data_evento, valor_inscricao, oferece_camisa, gratuito, inscricoes_abertas, distancia_km
        FROM eventos
        WHERE ativo = true
        ORDER BY data_evento ASC`
@@ -524,6 +525,7 @@ async function eventoPeloOnline(req, res, rota) {
 app.post('/admin/eventos', async (req, res) => {
   if (MODO_LOCAL && req.body.senha === ADMIN_PASSWORD) return eventoPeloOnline(req, res, '/admin/eventos');
   const { senha, nome, codigo, data_evento, categorias, oferece_camisa, gratuito } = req.body;
+  const distancia_km = Number(String(req.body.distancia_km || '').replace(',', '.')) || null;
   const valor_inscricao = gratuito ? 0 : req.body.valor_inscricao;
 
   if (senha !== ADMIN_PASSWORD) {
@@ -541,9 +543,9 @@ app.post('/admin/eventos', async (req, res) => {
     await client.query('BEGIN');
 
     const eventoResult = await client.query(
-      `INSERT INTO eventos (nome, codigo, data_evento, valor_inscricao, oferece_camisa, gratuito)
-       VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
-      [nome, codigo.toUpperCase(), data_evento, valor_inscricao, !!oferece_camisa, !!gratuito]
+      `INSERT INTO eventos (nome, codigo, data_evento, valor_inscricao, oferece_camisa, gratuito, distancia_km)
+       VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
+      [nome, codigo.toUpperCase(), data_evento, valor_inscricao, !!oferece_camisa, !!gratuito, distancia_km]
     );
     const evento = eventoResult.rows[0];
 
@@ -614,6 +616,7 @@ app.post('/admin/eventos/:id/editar', async (req, res) => {
   const { id } = req.params;
   if (MODO_LOCAL && req.body.senha === ADMIN_PASSWORD) return eventoPeloOnline(req, res, `/admin/eventos/${id}/editar`);
   const { senha, nome, codigo, data_evento, categorias, oferece_camisa, gratuito } = req.body;
+  const distancia_km = Number(String(req.body.distancia_km || '').replace(',', '.')) || null;
   const valor_inscricao = gratuito ? 0 : req.body.valor_inscricao;
   if (senha !== ADMIN_PASSWORD) return res.status(401).json({ erro: 'Senha incorreta.' });
   if (!nome || !codigo || !data_evento || (!gratuito && !valor_inscricao)) {
@@ -628,9 +631,9 @@ app.post('/admin/eventos/:id/editar', async (req, res) => {
     await client.query('BEGIN');
 
     const evento = await client.query(
-      `UPDATE eventos SET nome = $1, codigo = $2, data_evento = $3, valor_inscricao = $4, oferece_camisa = $5, gratuito = $6
-       WHERE id = $7 RETURNING *`,
-      [nome, codigo.toUpperCase(), data_evento, valor_inscricao, !!oferece_camisa, !!gratuito, id]
+      `UPDATE eventos SET nome = $1, codigo = $2, data_evento = $3, valor_inscricao = $4, oferece_camisa = $5, gratuito = $6, distancia_km = $7
+       WHERE id = $8 RETURNING *`,
+      [nome, codigo.toUpperCase(), data_evento, valor_inscricao, !!oferece_camisa, !!gratuito, distancia_km, id]
     );
     if (evento.rows.length === 0) {
       await client.query('ROLLBACK');
