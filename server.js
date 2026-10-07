@@ -1047,6 +1047,8 @@ app.post('/admin/eventos/:id/zerar-cronometragem', async (req, res) => {
       [id]
     );
     io.emit('resultado-atualizado', { evento_id: Number(id) });
+    // no PC: zera no site também
+    if (MODO_LOCAL) enviarResultadosProOnline(id).catch(e => console.log('Zerar no site ficou pra próxima sincronização:', e.message));
     res.json({ sucesso: true, zerados: result.rowCount });
   } catch (err) {
     console.error(err);
@@ -1507,7 +1509,9 @@ async function upsert(client, tabela, linha, manterLocal = []) {
   const valores = cols.map(c => linha[c]);
   const marcas = cols.map((_, i) => `$${i + 1}`);
   const sets = cols.filter(c => c !== 'id').map(c =>
-    manterLocal.includes(c) ? `${c} = COALESCE(${tabela}.${c}, EXCLUDED.${c})` : `${c} = EXCLUDED.${c}`
+    // largada/chegada: o PC sempre manda (se zerou aqui, o site não traz o tempo de volta)
+    manterLocal.includes(c) && (c === 'hora_largada' || c === 'hora_chegada') ? `${c} = ${tabela}.${c}`
+    : manterLocal.includes(c) ? `${c} = COALESCE(${tabela}.${c}, EXCLUDED.${c})` : `${c} = EXCLUDED.${c}`
   );
   await client.query(
     `INSERT INTO ${tabela} (${cols.join(', ')}) VALUES (${marcas.join(', ')})
