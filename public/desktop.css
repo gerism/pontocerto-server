@@ -1,0 +1,312 @@
+/* PontoCerto para Windows — visual do painel dentro do programa.
+   Só vale quando a página está aberta no programa (classe .app-desktop);
+   o admin pelo navegador/celular continua como era. */
+
+.app-desktop {
+  --asfalto: #0d0f13;
+  --lateral: #08090c;
+  --painel: #14171d;
+  --painel2: #191c23;
+  --borda: #242832;
+  --texto: #eef0f3;
+  --cinza: #8b909b;
+  --sinal: #ff6a3d;
+  --ok: #3ddc84;
+  --tit: Bahnschrift, "Segoe UI Variable Display", "Segoe UI", sans-serif;
+  color-scheme: dark;
+}
+
+.app-desktop body {
+  display: block;
+  padding: 0;
+  margin: 0;
+  background: var(--asfalto);
+  color: var(--texto);
+  font-family: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- estrutura: lateral fixa + conteúdo ---------- */
+.app-desktop .card {
+  max-width: none;
+  width: auto;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  padding: 0 44px 80px 292px;
+  min-height: 100vh;
+  box-sizing: border-box;
+}
+
+.app-desktop h1 {
+  position: fixed;
+  left: 0;
+  top: 0;
+  width: 252px;
+  margin: 0;
+  padding: 26px 24px 0;
+  z-index: 6;
+  box-sizing: border-box;
+}
+.app-desktop #badgeModo { display: none !important; }
+
+.pc-marca { font-family: var(--tit); font-stretch: condensed; line-height: 1; }
+.pc-marca .p { font-size: 30px; font-weight: 700; letter-spacing: .02em; color: var(--texto); }
+.pc-marca .p b { color: var(--sinal); font-weight: 700; }
+.pc-marca .s { display: block; font-family: "Segoe UI", sans-serif; font-size: 12.5px; font-weight: 500; color: var(--cinza); margin-top: 7px; letter-spacing: .03em; }
+
+.app-desktop .tabs {
+  position: fixed;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 252px;
+  box-sizing: border-box;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  gap: 3px;
+  margin: 0;
+  padding: 104px 14px 0;
+  background: var(--lateral);
+  border-right: 1px solid #1b1e25;
+  z-index: 5;
+}
+.app-desktop .tabs::before {
+  /* faixa de chegada sob a marca */
+  content: "";
+  position: absolute;
+  left: 24px;
+  right: 24px;
+  top: 84px;
+  height: 6px;
+  background: repeating-linear-gradient(90deg, #e9e9e9 0 6px, #16181d 6px 12px);
+  opacity: .55;
+}
+.app-desktop .tab {
+  flex: none;
+  min-width: 0;
+  text-align: left;
+  padding: 12px 14px;
+  border: 0;
+  border-left: 3px solid transparent;
+  border-radius: 10px;
+  background: transparent;
+  color: #a9adb6;
+  font-size: 14.5px;
+  font-weight: 600;
+  transition: background .12s, color .12s;
+}
+.app-desktop .tab:hover { background: #12151a; color: var(--texto); }
+.app-desktop .tab.active {
+  background: #ff6a3d14;
+  color: var(--sinal);
+  border-left-color: var(--sinal);
+  border-radius: 4px 10px 10px 4px;
+}
+
+/* rodapé da lateral: relógio + acesso pelo celular */
+.pc-lado {
+  position: fixed;
+  left: 0;
+  bottom: 0;
+  width: 252px;
+  box-sizing: border-box;
+  padding: 18px 20px 20px;
+  z-index: 6;
+  border-top: 1px solid #1b1e25;
+  background: var(--lateral);
+}
+.pc-relogio { font-family: var(--tit); font-size: 40px; font-weight: 600; letter-spacing: .01em; line-height: 1; }
+.pc-data { color: var(--cinza); font-size: 12.5px; margin-top: 5px; }
+.pc-cel { margin-top: 16px; font-size: 12px; color: var(--cinza); line-height: 1.5; }
+.pc-cel a { display: block; color: var(--texto); font-family: var(--tit); font-size: 19px; font-weight: 600; text-decoration: none; margin-top: 2px; }
+.pc-cel a:hover { color: var(--sinal); }
+.pc-config { margin-top: 14px; background: none; border: 0; color: var(--cinza); font: inherit; font-size: 12.5px; cursor: pointer; padding: 0; }
+.pc-config:hover { color: var(--texto); }
+
+/* ---------- topo de cada tela ---------- */
+.pc-topo {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 34px 0 22px;
+  margin-bottom: 26px;
+  border-bottom: 1px solid var(--borda);
+}
+.pc-titulo { font-family: var(--tit); font-size: 34px; font-weight: 600; line-height: 1.05; margin: 0; }
+.pc-sub { color: var(--cinza); font-size: 14px; margin-top: 6px; }
+.app-desktop #statusSync {
+  margin: 0 !important;
+  font-size: 12.5px !important;
+  padding: 8px 14px;
+  border-radius: 999px;
+  background: var(--painel);
+  border: 1px solid var(--borda);
+  white-space: nowrap;
+  max-width: 52%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.app-desktop .painel { max-width: 1080px; }
+.app-desktop #painelCriar { max-width: 820px; }
+
+/* botões principais do tamanho do texto (os do cronômetro continuam lado a lado) */
+.app-desktop button.acao { width: auto; min-width: 200px; padding-left: 26px; padding-right: 26px; }
+
+/* "Atualizar lista": botão discreto, a lista já carrega sozinha */
+.app-desktop button.acao[onclick^="carregarEventos"] {
+  min-width: 0;
+  margin: 0 0 12px !important;
+  padding: 8px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  background: transparent !important;
+  color: #b9bdc6 !important;
+  border: 1px solid var(--borda) !important;
+  border-radius: 9px;
+}
+.app-desktop button.acao[onclick^="carregarEventos"]:hover { color: var(--texto) !important; border-color: #3a3f4a !important; }
+
+/* ---------- campos e botões ---------- */
+.app-desktop label { font-size: 13.5px; color: #b9bdc6; margin: 18px 0 7px; }
+.app-desktop input,
+.app-desktop select,
+.app-desktop textarea {
+  background: #0a0c10 !important;
+  border: 1px solid var(--borda) !important;
+  border-radius: 10px !important;
+  color: var(--texto) !important;
+  font-size: 15px;
+}
+.app-desktop input:focus,
+.app-desktop select:focus,
+.app-desktop textarea:focus {
+  outline: 2px solid var(--sinal);
+  outline-offset: 1px;
+  border-color: transparent !important;
+}
+.app-desktop input[type="checkbox"] { accent-color: var(--sinal); }
+
+.app-desktop button.acao {
+  border-radius: 12px;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: .01em;
+  padding: 14px 18px;
+  transition: filter .12s, transform .05s;
+}
+.app-desktop button.acao:hover:not(:disabled) { filter: brightness(1.08); }
+.app-desktop button.acao:active:not(:disabled) { transform: translateY(1px); }
+.app-desktop button:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+
+/* ---------- listas de eventos ---------- */
+.app-desktop .evento-item {
+  background: var(--painel);
+  border: 1px solid var(--borda);
+  border-radius: 14px;
+  padding: 16px 18px;
+  margin-bottom: 10px;
+  transition: border-color .12s, background .12s;
+}
+.app-desktop .evento-item:hover { border-color: #ff6a3d88; }
+.app-desktop .evento-item.selecionado { border-color: var(--sinal); background: #1c1611; box-shadow: inset 4px 0 0 var(--sinal); }
+.app-desktop .evento-nome { font-family: var(--tit); font-size: 19px; font-weight: 600; letter-spacing: .01em; }
+.app-desktop .evento-meta { font-size: 13px; margin-top: 6px; }
+.app-desktop .evento-badge { font-family: "Segoe UI", sans-serif; font-size: 11px; padding: 3px 9px; border-radius: 999px; vertical-align: 3px; }
+.app-desktop .btn-excluir-evento { border-radius: 9px; padding: 7px 12px; font-size: 12px; }
+
+/* ---------- tabelas ---------- */
+.app-desktop table {
+  font-size: 14px;
+  background: var(--painel);
+  border: 1px solid var(--borda);
+  border-radius: 14px;
+  border-collapse: separate;
+  border-spacing: 0;
+  overflow: hidden;
+  margin-top: 22px;
+}
+.app-desktop th {
+  background: var(--painel2);
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: none;
+  letter-spacing: .02em;
+  padding: 12px 12px;
+  color: var(--cinza);
+}
+.app-desktop td { padding: 11px 12px; border-bottom: 1px solid #1f232b; }
+.app-desktop tr:last-child td { border-bottom: 0; }
+.app-desktop tbody tr:hover td,
+.app-desktop table tr:hover td { background: #ffffff06; }
+.app-desktop tr.linha-pronta td { background: #3ddc8414; }
+
+/* categorias no formulário de evento */
+.app-desktop .categoria-linha { gap: 8px; margin-bottom: 10px; }
+.app-desktop .categoria-linha input,
+.app-desktop .categoria-linha select { padding: 11px 10px; font-size: 14px; }
+
+/* ---------- cronometrar (dia da corrida) ---------- */
+.app-desktop #painelCrono #campoLeitor {
+  font-family: var(--tit);
+  font-size: 26px !important;
+  padding: 20px 22px !important;
+  letter-spacing: .02em;
+}
+.app-desktop #painelCrono #campoLeitor:not(:disabled) {
+  border-color: #3ddc8466 !important;
+  box-shadow: 0 0 0 4px #3ddc8412;
+}
+.app-desktop #btnLargada,
+.app-desktop #btnChegada { font-family: var(--tit); font-size: 20px !important; padding: 20px !important; border-radius: 14px !important; }
+.app-desktop #logCrono {
+  max-height: 52vh !important;
+  background: var(--painel);
+  border: 1px solid var(--borda);
+  border-radius: 14px;
+  padding: 4px 16px;
+}
+.app-desktop #logCrono > div { font-size: 16px !important; padding: 12px 2px !important; border-bottom-color: #1f232b !important; }
+.app-desktop #logCrono:empty { display: none; }
+
+/* registros das outras telas */
+.app-desktop #logTeste > div,
+.app-desktop #logSync > div { font-size: 14.5px !important; padding: 10px 2px !important; }
+
+/* resultados: quadros mais largos */
+.app-desktop #resultadoResultados > div[style*="column-width"] { column-width: 300px !important; column-gap: 18px !important; }
+.app-desktop #resultadoResultados h2 { font-family: var(--tit); font-size: 17px !important; font-weight: 600; }
+
+/* modal de editar atleta */
+.app-desktop #modalAtleta > div { border-radius: 18px !important; padding: 26px !important; max-width: 520px !important; }
+.app-desktop #modalAtleta h2 { font-family: var(--tit); font-size: 22px !important; font-weight: 600; }
+
+/* rolagem discreta */
+.app-desktop ::-webkit-scrollbar { width: 12px; height: 12px; }
+.app-desktop ::-webkit-scrollbar-thumb { background: #262a33; border-radius: 8px; border: 3px solid var(--asfalto); }
+.app-desktop ::-webkit-scrollbar-track { background: transparent; }
+
+@media (prefers-reduced-motion: reduce) {
+  .app-desktop * { transition: none !important; }
+}
+
+/* botão e tela do QR Code pro celular */
+.pc-qr-btn { margin-top: 8px; background: #ff6a3d1f; border: 1px solid #ff6a3d55; color: var(--sinal); font: inherit; font-size: 12.5px; font-weight: 600; padding: 6px 10px; border-radius: 8px; cursor: pointer; }
+.pc-qr-btn:hover { background: #ff6a3d33; }
+.pc-qr-fundo { position: fixed; inset: 0; z-index: 50; background: rgba(5,6,8,.82); display: flex; align-items: center; justify-content: center; }
+.pc-qr-caixa { background: #fff; color: #111; border-radius: 18px; padding: 28px 36px 24px; text-align: center; width: min(460px, 90vw); }
+.pc-qr-titulo { font-family: var(--tit); font-size: 28px; font-weight: 700; }
+.pc-qr-img svg { width: 100%; height: auto; display: block; margin: 14px 0 6px; }
+.pc-qr-dica { font-size: 15px; color: #444; }
+.pc-qr-url { font-family: var(--tit); font-size: 26px; font-weight: 700; margin-top: 6px; }
+.pc-qr-acoes { display: flex; gap: 10px; justify-content: center; margin-top: 18px; }
+.pc-qr-acoes button { font: inherit; font-weight: 700; font-size: 15px; padding: 10px 18px; border-radius: 10px; border: 1px solid #ccc; background: #f3f3f3; cursor: pointer; }
+.pc-qr-acoes button:first-child { background: #ff6a3d; border-color: #ff6a3d; color: #1a0d07; }
+@media print {
+  body.app-desktop > *:not(.pc-qr-fundo) { display: none !important; }
+  .pc-qr-fundo { position: static; background: none; }
+  .pc-qr-acoes { display: none; }
+  .pc-qr-caixa { width: 100%; }
+}
