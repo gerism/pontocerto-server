@@ -221,7 +221,16 @@ async function buscarEvento() {
 async function prepararAtleta() {
   mostrar('passoAtleta');
   const lembrado = atletaLembrado();
-  if (lembrado) { atleta = lembrado; return mostrarConhecido(); }
+  if (lembrado) {
+    // confere no servidor se o cadastro ainda existe (pode ter sido excluído)
+    try {
+      const r = await api(`/atletas/${lembrado.id}/existe`);
+      if (r.existe) { lembrarAtleta({ id: lembrado.id, nome: r.nome }); return mostrarConhecido(); }
+      esquecerAtleta();
+    } catch (e) {
+      atleta = lembrado; return mostrarConhecido();
+    }
+  }
   try {
     const meu = await api(`/atletas/meu?device_id=${encodeURIComponent(deviceId())}`);
     if (meu) { lembrarAtleta(meu); return mostrarConhecido(); }
@@ -239,6 +248,18 @@ function mostrarConhecido() {
 }
 function mostrarNovo() { esconderBlocos(); document.getElementById('blocoNovo').hidden = false; }
 function mostrarEntrar() { esconderBlocos(); document.getElementById('blocoEntrar').hidden = false; }
+function esquecerAtleta() {
+  atleta = null;
+  try { localStorage.removeItem('pc_atleta'); } catch (e) {}
+}
+
+// Voltou pra aba do navegador: confere de novo se o cadastro ainda existe
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState !== 'visible' || !atleta || !evento) return;
+  const naTela = !document.getElementById('passoAtleta').hidden || !document.getElementById('passoConfirmar').hidden;
+  if (naTela) prepararAtleta();
+});
+
 function trocarAtleta() {
   atleta = null;
   try { localStorage.removeItem('pc_atleta'); } catch (e) {}

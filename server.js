@@ -338,6 +338,16 @@ app.get('/inscricoes/:id/status', async (req, res) => {
 
 // Página web: entra com CPF + nascimento quando a pessoa já tem cadastro
 // (feito no app ou em outro navegador). Devolve só o mínimo.
+// A página web confere se o cadastro guardado no navegador ainda existe
+app.get('/atletas/:id/existe', async (req, res) => {
+  try {
+    const r = await pool.query('SELECT id, nome FROM atletas WHERE id = $1', [req.params.id]);
+    res.json(r.rows.length ? { existe: true, nome: r.rows[0].nome } : { existe: false });
+  } catch (err) {
+    res.status(500).json({ erro: 'Erro ao conferir cadastro.' });
+  }
+});
+
 app.post('/atletas/entrar', async (req, res) => {
   const cpf = String(req.body.cpf || '').replace(/\D/g, '');
   const { data_nascimento } = req.body;
