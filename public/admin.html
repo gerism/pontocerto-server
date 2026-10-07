@@ -210,6 +210,7 @@
         <button type="button" class="acao" style="margin:0; width:auto; padding:8px 14px; font-size:12.5px; background:#1a1d24; color:#f87171; border:1px solid #f87171;" onclick="apagarRegulamento()">🗑️ Apagar texto</button>
         <button type="button" class="acao" style="margin:0; width:auto; padding:8px 14px; font-size:12.5px; background:#1a1d24; color:#f3ede4; border:1px solid #2c3038;" onclick="usarModeloRegulamento()">📄 Usar modelo</button>
       </div>
+      <button type="button" class="acao" id="btnSalvarRapido" style="display:none; margin-top:10px;" onclick="criarEvento()">💾 Salvar alterações</button>
       <div style="font-size:11.5px; color:#9a9ba3; margin-top:4px;">Se preenchido, o atleta precisa marcar "Li e aceito o regulamento" pra se inscrever pelo site.</div>
 
       <label>Categorias por idade *</label>
@@ -515,10 +516,12 @@ async function criarEvento() {
 
   if (!senha || !nome || !codigo || !data_evento || (!gratuito && !valor_inscricao)) {
     resultado.innerHTML = '<span class="erro">Preenche todos os campos obrigatórios.</span>';
+    alert('Preencha senha, nome, código, data e valor (ou marque gratuita).');
     return;
   }
   if (categorias.length === 0) {
     resultado.innerHTML = '<span class="erro">Adiciona pelo menos uma categoria de idade válida.</span>';
+    alert('Adicione pelo menos uma categoria de idade válida.');
     return;
   }
 
@@ -537,6 +540,7 @@ async function criarEvento() {
     if (resp.ok && eventoEmEdicao) {
       cancelarEdicao();
       resultado.innerHTML = `<span class="ok">✅ Evento "${dados.nome}" atualizado! Categorias dos inscritos recalculadas.</span>`;
+      alert(`✅ Evento "${dados.nome}" salvo.`);
     } else if (resp.ok) {
       resultado.innerHTML = `<span class="ok">✅ Evento "${dados.nome}" criado! Código: <b>${dados.codigo}</b></span>`;
       document.getElementById('nomeCriar').value = '';
@@ -551,10 +555,12 @@ async function criarEvento() {
       document.getElementById('listaCategorias').innerHTML = '';
       adicionarCategoria();
     } else {
-      resultado.innerHTML = `<span class="erro">❌ ${dados.erro || 'Não foi possível criar.'}</span>`;
+      resultado.innerHTML = `<span class="erro">❌ ${dados.erro || 'Não foi possível salvar.'}</span>`;
+      alert('❌ ' + (dados.erro || 'Não foi possível salvar.'));
     }
   } catch (e) {
     resultado.innerHTML = '<span class="erro">❌ Erro de conexão com o servidor.</span>';
+    alert('❌ Erro de conexão com o servidor.');
   } finally {
     btn.disabled = false;
   }
@@ -1317,6 +1323,7 @@ async function editarEvento(id) {
     if (ev.categorias.length === 0) adicionarCategoria();
 
     document.getElementById('btnCriar').textContent = '💾 Salvar alterações';
+    document.getElementById('btnSalvarRapido').style.display = '';
     document.getElementById('btnCancelarEdicao').style.display = '';
     document.getElementById('resultadoCriar').innerHTML = `<span style="color:#ff6a3d;">✏️ Editando "${ev.nome}"</span>`;
     mudarAba('criar');
@@ -1335,6 +1342,7 @@ function cancelarEdicao() {
   document.getElementById('listaCategorias').innerHTML = '';
   adicionarCategoria();
   document.getElementById('btnCriar').textContent = 'Criar evento';
+  document.getElementById('btnSalvarRapido').style.display = 'none';
   document.getElementById('btnCancelarEdicao').style.display = 'none';
   document.getElementById('resultadoCriar').innerHTML = '';
 }
