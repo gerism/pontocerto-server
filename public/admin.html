@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Admin — PontoCerto</title>
+<link rel="stylesheet" href="desktop.css">
 <style>
   body {
     background: #0f1115;
@@ -412,7 +413,7 @@ async function alternarKitEntregue(inscricaoId, checkbox) {
   // segura e rápida, mas desmarcar sem querer é mais fácil de passar
   // batido depois.
   if (!marcado) {
-    const confirmou = confirm('Tem certeza que quer desmarcar? Isso indica que o kit ainda não foi entregue.');
+    const confirmou = confirm('Desmarcar libera a tag pra trocar. Continuar?');
     if (!confirmou) {
       checkbox.checked = true; // volta pro estado marcado, já que cancelou
       return;
@@ -429,6 +430,7 @@ async function alternarKitEntregue(inscricaoId, checkbox) {
   // Atualiza a cor da linha na hora, sem esperar a resposta do servidor
   const linha = document.getElementById(`linha-${inscricaoId}`);
   if (linha) linha.classList.toggle('linha-pronta', marcado);
+  if (document.getElementById(`tag-${inscricaoId}`)) desenharCelulaTag(inscricaoId);
 
   try {
     await fetch(`/admin/inscricoes/${inscricaoId}/kit-entregue`, {
@@ -692,7 +694,7 @@ async function carregarInscritos() {
             <td>${i.sexo || '-'}</td>
             <td>${i.quer_camisa ? `${i.camisa_tipo} ${i.camisa_tamanho}` : 'Sem camisa'}</td>
             <td id="tag-${i.inscricao_id}" data-tag="${i.tag_epc || ''}" onclick="abrirCampoTag(${i.inscricao_id})">
-              ${i.tag_epc ? `<span style="color:#4ade80; cursor:pointer;" title="Clique pra trocar">${i.tag_epc}</span>` : `<span style="cursor:pointer;" title="Clique e encoste a tag no leitor">⚠️ sem tag</span>`}
+              ${i.tag_epc ? (i.kit_entregue ? `<span style="color:#4ade80;" title="Desmarque Pronto pra trocar">🔒 ${i.tag_epc}</span>` : `<span style="color:#4ade80; cursor:pointer;" title="Clique pra trocar">${i.tag_epc}</span>`) : `<span style="cursor:pointer;" title="Clique e encoste a tag no leitor">⚠️ sem tag</span>`}
             </td>
             <td style="text-align:center;">
               <input type="checkbox" ${i.kit_entregue ? 'checked' : ''}
@@ -921,9 +923,15 @@ function imprimirResultados() {
 // ============================================
 // VINCULAR TAG (leitor de mesa em modo teclado)
 // ============================================
+function tagTravada(inscricaoId) {
+  const caixa = document.querySelector(`#linha-${inscricaoId} input[type=checkbox]`);
+  return !!(caixa && caixa.checked);
+}
+
 function abrirCampoTag(inscricaoId) {
   const celula = document.getElementById(`tag-${inscricaoId}`);
   if (celula.querySelector('input')) return;
+  if (tagTravada(inscricaoId)) { alert('🔒 Tag travada. Desmarque "Pronto" pra trocar.'); return; }
   const atual = celula.dataset.tag || '';
   celula.innerHTML = `<input type="text" placeholder="Encoste a tag..." value="${atual}"
     style="width:100%; min-width:140px; padding:6px; font-size:12px;"
@@ -947,7 +955,9 @@ function desenharCelulaTag(inscricaoId) {
   const celula = document.getElementById(`tag-${inscricaoId}`);
   const tag = celula.dataset.tag;
   celula.innerHTML = tag
-    ? `<span style="color:#4ade80; cursor:pointer;" title="Clique pra trocar">${tag}</span>`
+    ? (tagTravada(inscricaoId)
+        ? `<span style="color:#4ade80;" title="Desmarque Pronto pra trocar">🔒 ${tag}</span>`
+        : `<span style="color:#4ade80; cursor:pointer;" title="Clique pra trocar">${tag}</span>`)
     : `<span style="cursor:pointer;" title="Clique e encoste a tag no leitor">⚠️ sem tag</span>`;
 }
 
@@ -976,6 +986,9 @@ async function salvarTag(inscricaoId, valor) {
     celula.dataset.salvando = '';
     if (resp.ok) {
       celula.dataset.tag = tag;
+      // tag cadastrada: marca Pronto sozinho (trava a tag)
+      const caixa = document.querySelector(`#linha-${inscricaoId} input[type=checkbox]`);
+      if (caixa && !caixa.checked) { caixa.checked = true; await alternarKitEntregue(inscricaoId, caixa); }
       desenharCelulaTag(inscricaoId);
     } else {
       desenharCelulaTag(inscricaoId);
@@ -1592,6 +1605,114 @@ function usarModeloRegulamento() {
 }
 
 document.getElementById('regulamentoCriar').value = REGULAMENTO_MODELO;
+
+// ============================================
+// MODO PROGRAMA (PontoCerto para Windows)
+// Só roda quando o painel está aberto dentro do programa.
+// ============================================
+const TITULOS_ABAS = {
+  criar: ['Eventos', 'Criar e editar corridas: data, valor, categorias e regulamento'],
+  inscritos: ['Inscritos', 'Atletas confirmados, tags, kit e cadastro'],
+  resultados: ['Resultados', 'Classificação geral, por sexo e por categoria'],
+  crono: ['Cronometrar', 'Leitura das tags na largada e na chegada'],
+  teste: ['Atletas teste', 'Atletas de treino, sem app e sem pagamento'],
+  sync: ['Sincronizar', 'Troca de dados entre este computador e o site']
+};
+const CARREGAR_ABAS = {
+  inscritos: () => carregarEventos(),
+  resultados: () => carregarEventosResultados(),
+  crono: () => carregarEventosCrono(),
+  teste: () => carregarEventosTeste(),
+  sync: () => carregarEventosOnline()
+};
+
+async function iniciarModoPrograma() {
+  if (!window.pontocerto) return;
+  document.documentElement.classList.add('app-desktop');
+  document.title = 'PontoCerto';
+  const info = await window.pontocerto.info();
+
+  // senha já salva no programa: preenche e esconde os campos de senha
+  document.querySelectorAll('input[type="password"]').forEach(campo => {
+    campo.value = info.senha;
+    const caixa = campo.closest('.campo-senha');
+    if (caixa) {
+      caixa.style.display = 'none';
+      const rotulo = caixa.previousElementSibling;
+      if (rotulo && rotulo.tagName === 'LABEL') rotulo.style.display = 'none';
+    }
+  });
+
+  // marca na lateral
+  const h1 = document.querySelector('h1');
+  const badge = document.getElementById('badgeModo');
+  h1.innerHTML = '<span class="pc-marca"><span class="p">PONTO<b>CERTO</b></span><span class="s">Cronometragem de corridas</span></span>';
+  if (badge) h1.appendChild(badge);
+
+  // topo da tela: título + status do site
+  const topo = document.createElement('div');
+  topo.className = 'pc-topo';
+  topo.innerHTML = '<div><h2 class="pc-titulo" id="pcTitulo"></h2><div class="pc-sub" id="pcSub"></div></div>';
+  const status = document.getElementById('statusSync');
+  topo.appendChild(status);
+  const abas = document.querySelector('.tabs');
+  abas.parentNode.insertBefore(topo, abas.nextSibling);
+
+  // rodapé da lateral: relógio e endereço pro celular
+  const lado = document.createElement('div');
+  lado.className = 'pc-lado';
+  const ip = info.ips[0];
+  const linkCel = ip ? `http://${ip}:${info.porta}` : '';
+  lado.innerHTML = `
+    <div class="pc-relogio" id="pcRelogio">--:--:--</div>
+    <div class="pc-data" id="pcData"></div>
+    <div class="pc-cel">${ip
+      ? `Resultados ao vivo no celular, no mesmo Wi-Fi:<a href="#" id="pcLinkCel">${linkCel.replace('http://', '')}</a>`
+      : 'Sem rede Wi-Fi/cabo no momento.'}</div>
+    <button type="button" class="pc-config" id="pcConfig">⚙️ Configurações</button>`;
+  document.body.appendChild(lado);
+  if (ip) document.getElementById('pcLinkCel').onclick = e => { e.preventDefault(); window.pontocerto.abrirExterno(linkCel); };
+  document.getElementById('pcConfig').onclick = () => window.pontocerto.abrirConfig();
+
+  const relogio = () => {
+    const agora = new Date();
+    document.getElementById('pcRelogio').textContent = agora.toLocaleTimeString('pt-BR');
+    const d = agora.toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: 'long' });
+    document.getElementById('pcData').textContent = d.charAt(0).toUpperCase() + d.slice(1);
+  };
+  relogio();
+  setInterval(relogio, 1000);
+
+  // ao trocar de tela: título novo e lista de eventos já carregada
+  const mudarAbaOriginal = mudarAba;
+  window.mudarAba = function (aba) {
+    mudarAbaOriginal(aba);
+    const [t, s] = TITULOS_ABAS[aba] || ['', ''];
+    document.getElementById('pcTitulo').textContent = t;
+    document.getElementById('pcSub').textContent = s;
+    if (CARREGAR_ABAS[aba]) {
+      Promise.resolve(CARREGAR_ABAS[aba]()).then(() => {
+        // um evento só: já deixa selecionado
+        const painel = document.getElementById('painel' + aba.charAt(0).toUpperCase() + aba.slice(1));
+        const itens = painel ? painel.querySelectorAll('.evento-item') : [];
+        if (itens.length === 1 && !itens[0].classList.contains('selecionado')) itens[0].click();
+      });
+    }
+  };
+  // botões de recarregar viram "Atualizar lista"
+  document.querySelectorAll('button[onclick^="carregarEventos"]').forEach(b => { b.textContent = '↻ Atualizar lista'; });
+  const ativa = (document.querySelector('.tab.active') || {}).id || 'tabCriar';
+  window.mudarAba(ativa.replace('tab', '').toLowerCase());
+
+  // links "Ver resultados" etc. abrem no navegador
+  document.addEventListener('click', e => {
+    const a = e.target.closest('a[href]');
+    if (!a) return;
+    const url = new URL(a.getAttribute('href'), location.href).href;
+    if (/\/(resultados|inscricao)\.html/.test(url)) { e.preventDefault(); window.pontocerto.abrirExterno(url); }
+  });
+}
+iniciarModoPrograma();
 atualizarBotoesCrono();
 </script>
 </body>
