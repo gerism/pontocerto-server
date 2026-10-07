@@ -100,11 +100,16 @@
   @media (min-width: 700px) { .regbox { align-items: center; } .regbox-in { border-radius: 16px; } }
   .linkreg { display: none; margin: 8px auto 0; max-width: 720px; }
   .linkreg button { background: none; border: 1.5px solid #d9dbe0; color: #fff; border-radius: 999px; padding: 6px 14px; font-size: 13px; font-weight: 600; cursor: pointer; }
+  .voltar-res { background: none; border: 0; color: #d9dbe0; font-size: 15px; font-weight: 600; padding: 0; cursor: pointer; }
+  .aviso-meu { background: #fff6e0; color: #6b4e00; border-radius: 10px; padding: 12px 14px; font-size: 14px; margin: 4px 0 14px; }
   .rodape { font-size: 12px; color: var(--cinza); text-align: center; padding: 18px 0 30px; }
 </style>
 </head>
 <body>
   <header class="topo">
+    <div class="topo-linha" id="linhaVoltar" style="display:none; margin-bottom:8px;">
+      <button type="button" class="voltar-res" onclick="history.length > 1 ? history.back() : (location.href = 'inscricao.html')">← Voltar</button>
+    </div>
     <div class="topo-linha">
       <div class="evento" id="nomeEvento">Resultados</div>
       <div class="ao-vivo"><span class="ponto" id="ponto"></span><span id="status">conectando</span></div>
@@ -114,6 +119,7 @@
   </header>
 
   <main>
+    <div class="aviso-meu" id="avisoMeu" style="display:none;">Seu resultado aparece aqui assim que você passar pela chegada. Esta tela atualiza sozinha.</div>
     <section class="lider" id="lider" style="display:none;">
       <div class="lider-tempo" id="liderTempo"></div>
       <div class="lider-nome" id="liderNome"></div>
@@ -170,6 +176,7 @@ async function abrirRegulamentoResultados() {
 
 let eventoId = null;
 let jaAbriuLink = false;
+if (new URLSearchParams(location.search).get('voltar')) document.getElementById('linhaVoltar').style.display = 'flex';
 let dados = [];
 let filtro = 'geral';
 
@@ -250,6 +257,8 @@ async function carregar() {
     const pedido = meuAberto ?? Number(new URLSearchParams(location.search).get('numero') || 0);
     if (meuAberto) abrirMeu(meuAberto);
     else if (pedido && !jaAbriuLink && dados.find(x => Number(x.numero) === pedido)) { jaAbriuLink = true; abrirMeu(pedido); }
+    const aviso = document.getElementById('avisoMeu');
+    aviso.style.display = pedido && !meuAberto && !dados.find(x => Number(x.numero) === pedido) ? 'block' : 'none';
     document.getElementById('rodape').textContent = `Atualizado às ${new Date().toLocaleTimeString('pt-BR')}`;
   } catch (e) {
     document.getElementById('rodape').textContent = 'Sem conexão com o sistema. Tentando de novo...';

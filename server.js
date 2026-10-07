@@ -19,6 +19,8 @@ const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: process.env.MODO_LOCAL ? false : { rejectUnauthorized: false },
 });
+// conexão perdida com o banco (ex: banco reiniciando) não derruba o servidor
+pool.on('error', err => console.error('Banco:', err.message));
 
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
 
@@ -417,6 +419,22 @@ app.get('/atletas/:id/existe', async (req, res) => {
     res.json(r.rows.length ? { existe: true, nome: r.rows[0].nome, cidade: r.rows[0].cidade } : { existe: false });
   } catch (err) {
     res.status(500).json({ erro: 'Erro ao conferir cadastro.' });
+  }
+});
+
+// Inscrição do atleta num evento (página web: "Meus resultados" / já inscrito)
+app.get('/atletas/:id/inscricao/:eventoId', async (req, res) => {
+  try {
+    const r = await pool.query(
+      `SELECT id, numero_peito, pagamento_status,
+              (hora_chegada IS NOT NULL AND hora_largada IS NOT NULL) AS tem_tempo
+       FROM inscricoes WHERE atleta_id = $1 AND evento_id = $2`,
+      [req.params.id, req.params.eventoId]
+    );
+    res.json(r.rows[0] || null);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ erro: 'Erro ao buscar inscrição.' });
   }
 });
 

@@ -67,12 +67,18 @@
   .regbox-texto { padding: 16px; overflow-y: auto; white-space: pre-wrap; font-size: 15px; line-height: 1.6; }
   @media (min-width: 700px) { .regbox { align-items: center; } .regbox-in { border-radius: 16px; } }
   .link-reg { margin-left: 6px; }
+  .voltar-topo { background: none; border: 0; color: #d9dbe0; font-size: 15px; font-weight: 600; padding: 0 0 10px; cursor: pointer; }
+  .voltar-topo:hover { color: #fff; }
+  .ja-inscrito { padding: 14px; border-radius: 10px; background: #e7f6ec; color: #14532d; font-weight: 600; margin-top: 12px; text-align: center; }
+  .ja-inscrito b { display: block; font-size: 30px; font-weight: 800; margin-top: 2px; }
+  button.secundario { width: 100%; margin-top: 10px; padding: 14px; font-size: 16px; font-weight: 700; border-radius: 12px; background: #fff; color: var(--tinta); border: 1.5px solid var(--tinta); cursor: pointer; }
   [hidden] { display: none !important; }
 </style>
 </head>
 <body>
   <header class="topo">
     <div class="topo-in">
+      <button type="button" class="voltar-topo" id="btnVoltar" hidden onclick="voltarInicio()" aria-label="Voltar ao início">← Início</button>
       <div class="marca">PontoCerto · inscrição</div>
       <div class="evento-nome" id="tituloEvento">Inscrição na corrida</div>
       <div class="evento-info" id="infoEvento"></div>
@@ -96,7 +102,9 @@
       <div id="blocoConhecido" hidden>
         <h2>Inscrever</h2>
         <div class="quem"><b id="nomeConhecido"></b><button class="link" onclick="trocarAtleta()">Não sou eu</button></div>
-        <button class="principal" onclick="irParaConfirmar()">Continuar</button>
+        <div class="ja-inscrito" id="jaInscrito" hidden>✅ Você já está inscrito nesta corrida<b id="jaInscritoNum"></b></div>
+        <button class="principal" id="btnContinuar" onclick="irParaConfirmar()">Continuar</button>
+        <button type="button" class="secundario" onclick="meusResultados()">🏆 Meus resultados</button>
         <button class="link" onclick="abrirMeusDados()">✏️ Corrigir meus dados</button>
       </div>
 
@@ -326,6 +334,7 @@ function dataParaServidor(texto) {
 function mostrar(id) {
   ['passoCodigo', 'passoAtleta', 'passoConfirmar', 'passoPix', 'passoPronto']
     .forEach(p => document.getElementById(p).hidden = p !== id);
+  document.getElementById('btnVoltar').hidden = id === 'passoCodigo';
   window.scrollTo(0, 0);
 }
 
@@ -354,7 +363,7 @@ async function buscarEvento() {
       : 'R$ ' + Number(evento.valor_inscricao).toFixed(2).replace('.', ',');
     document.getElementById('infoEvento').textContent = `${data} — ${valor}`;
     const lr = document.getElementById('linkResultados');
-    lr.href = `resultados.html?evento=${evento.id}`;
+    lr.href = `resultados.html?evento=${evento.id}&voltar=1`;
     lr.hidden = false;
     document.getElementById('linkRegulamento').hidden = !evento.regulamento;
     if (evento.inscricoes_abertas === false) {
@@ -392,10 +401,42 @@ async function prepararAtleta() {
 function esconderBlocos() {
   ['blocoConhecido', 'blocoNovo', 'blocoEntrar', 'blocoConfirmarDono', 'blocoEditar'].forEach(b => document.getElementById(b).hidden = true);
 }
-function mostrarConhecido() {
+let minhaInscricao = null;
+async function mostrarConhecido() {
   esconderBlocos();
   document.getElementById('nomeConhecido').textContent = atleta.nome;
   document.getElementById('blocoConhecido').hidden = false;
+  // já inscrito (e confirmado) nesta corrida? então não mostra "Continuar"
+  minhaInscricao = null;
+  try { minhaInscricao = await api(`/atletas/${atleta.id}/inscricao/${evento.id}`); } catch (e) {}
+  const confirmado = minhaInscricao && minhaInscricao.pagamento_status === 'pago';
+  document.getElementById('jaInscrito').hidden = !confirmado;
+  document.getElementById('jaInscritoNum').textContent = confirmado ? 'Nº ' + (minhaInscricao.numero_peito || minhaInscricao.id) : '';
+  document.getElementById('btnContinuar').hidden = !!confirmado;
+}
+
+async function meusResultados() {
+  if (minhaInscricao === null) {
+    try { minhaInscricao = await api(`/atletas/${atleta.id}/inscricao/${evento.id}`); } catch (e) {}
+  }
+  if (!minhaInscricao || minhaInscricao.pagamento_status !== 'pago') {
+    alert('Você ainda não está inscrito nesta corrida.');
+    return;
+  }
+  const numero = minhaInscricao.numero_peito || minhaInscricao.id;
+  location.href = `resultados.html?evento=${evento.id}&numero=${numero}&voltar=1`;
+}
+
+function voltarInicio() {
+  evento = null;
+  history.replaceState(null, '', 'inscricao.html');
+  document.getElementById('tituloEvento').textContent = 'Inscrição na corrida';
+  document.getElementById('infoEvento').textContent = '';
+  document.getElementById('linkResultados').hidden = true;
+  document.getElementById('linkRegulamento').hidden = true;
+  document.getElementById('codigo').value = '';
+  document.getElementById('erroCodigo').textContent = '';
+  mostrar('passoCodigo');
 }
 function mostrarNovo() { esconderBlocos(); document.getElementById('blocoNovo').hidden = false; }
 function mostrarEntrar() { esconderBlocos(); document.getElementById('blocoEntrar').hidden = false; }
@@ -627,7 +668,7 @@ async function confirmado(categoria) {
   document.getElementById('textoPronto').textContent =
     `${atleta.nome}, você está inscrito em ${evento.nome}` + (categoria ? `, categoria ${categoria}.` : '.');
   document.getElementById('numeroInscricao').textContent = 'Nº ' + (numero || inscricaoId);
-  document.getElementById('btnMeuResultado').href = `resultados.html?evento=${evento.id}&numero=${numero || ''}`;
+  document.getElementById('btnMeuResultado').href = `resultados.html?evento=${evento.id}&numero=${numero || ''}&voltar=1`;
   mostrar('passoPronto');
 }
 
