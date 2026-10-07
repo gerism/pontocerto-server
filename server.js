@@ -971,15 +971,31 @@ app.post('/admin/atletas/excluir-por-cpf', async (req, res) => {
   if (senha !== ADMIN_PASSWORD) return res.status(401).json({ erro: 'Senha incorreta.' });
   if (!cpf) return res.status(400).json({ erro: 'Informe o CPF.' });
 
+  const cpfLimpo = String(cpf).replace(/\D/g, '');
   try {
-    const result = await pool.query(
-      'DELETE FROM atletas WHERE cpf = $1 RETURNING nome',
-      [cpf.replace(/\D/g, '')]
+    const achado = await pool.query(
+      `SELECT id, nome FROM atletas WHERE regexp_replace(cpf, '\\D', '', 'g') = $1`, [cpfLimpo]
     );
-    if (result.rows.length === 0) {
+
+    // No PC, apaga também no site (sem internet, apaga só no PC e avisa)
+    let online = null;
+    if (MODO_LOCAL) {
+      try {
+        await chamarOnline('/admin/atletas/excluir-por-cpf', { senha, cpf: cpfLimpo });
+        online = 'excluido';
+      } catch (e) {
+        online = e.status === 404 ? 'nao-existia' : 'falhou';
+      }
+    }
+
+    if (achado.rows.length === 0) {
+      if (online === 'excluido') return res.json({ sucesso: true, nome: 'Atleta', online });
       return res.status(404).json({ erro: 'Nenhum atleta encontrado com esse CPF.' });
     }
-    res.json({ sucesso: true, nome: result.rows[0].nome });
+    const atletaId = achado.rows[0].id;
+    await pool.query('DELETE FROM inscricoes WHERE atleta_id = $1', [atletaId]);
+    await pool.query('DELETE FROM atletas WHERE id = $1', [atletaId]);
+    res.json({ sucesso: true, nome: achado.rows[0].nome, online });
   } catch (err) {
     console.error(err);
     res.status(500).json({ erro: 'Erro ao excluir atleta.' });

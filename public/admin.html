@@ -247,6 +247,14 @@
       </div>
 
       <div id="resultadoInscritos"></div>
+
+      <div style="height:1px; background:#2c3038; margin:24px 0 8px;"></div>
+      <label>Excluir cadastro de atleta</label>
+      <div style="display:flex; gap:8px;">
+        <input type="text" id="cpfExcluir" inputmode="numeric" placeholder="CPF do atleta">
+        <button type="button" class="acao" style="width:auto; margin:0; padding:0 18px; background:#1a1d24; color:#f87171; border:1px solid #f87171;" onclick="excluirAtletaPorCpf()">🗑️ Excluir</button>
+      </div>
+      <div style="font-size:11.5px; color:#9a9ba3; margin-top:4px;">Apaga o cadastro e todas as inscrições dele, no PC e no site. A pessoa pode se cadastrar de novo depois.</div>
     </div>
     <!-- ABA: DENÚNCIAS removida — não se aplica ao PontoCerto -->
 
@@ -1415,6 +1423,32 @@ async function alternarInscricoes(id, abrir) {
     if (!resp.ok) { alert('❌ ' + (dados.erro || 'Não foi possível.')); return; }
     alert((abrir ? '🔓 Inscrições reabertas.' : '🔒 Inscrições encerradas.') + (dados.aviso ? '\n\n' + dados.aviso : ''));
     carregarEventos();
+  } catch (e) {
+    alert('❌ Erro de conexão com o servidor.');
+  }
+}
+
+async function excluirAtletaPorCpf() {
+  const senha = document.getElementById('senhaInscritos').value.trim();
+  const cpf = document.getElementById('cpfExcluir').value.replace(/\D/g, '');
+  if (!senha) { alert('Preenche a senha.'); return; }
+  if (cpf.length !== 11) { alert('Digite o CPF com 11 números.'); return; }
+  if (!confirm(`Excluir o cadastro do CPF ${cpf} e todas as inscrições dele? Não pode ser desfeito.`)) return;
+  try {
+    const resp = await fetch('/admin/atletas/excluir-por-cpf', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ senha, cpf })
+    });
+    const dados = await resp.json();
+    if (!resp.ok) { alert('❌ ' + (dados.erro || 'Não foi possível excluir.')); return; }
+    const avisos = {
+      'falhou': '\n⚠️ Sem internet: excluído só no PC. Exclua de novo quando conectar.',
+      'nao-existia': '\nNo site ele já não existia.'
+    };
+    alert(`"${dados.nome}" foi excluído.${avisos[dados.online] || ''}`);
+    document.getElementById('cpfExcluir').value = '';
+    if (eventoSelecionadoId) carregarInscritos();
   } catch (e) {
     alert('❌ Erro de conexão com o servidor.');
   }

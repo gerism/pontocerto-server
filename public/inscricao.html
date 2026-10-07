@@ -323,6 +323,14 @@ async function inscrever() {
     clearInterval(consulta);
     consulta = setInterval(verificarPagamento, 4000);
   } catch (e) {
+    if (e.message.includes('Atleta não encontrado')) {
+      // cadastro foi apagado: esquece e pede os dados de novo
+      trocarAtleta();
+      mostrar('passoAtleta');
+      mostrarNovo();
+      document.getElementById('erroNovo').textContent = 'Seu cadastro não foi encontrado. Preencha seus dados de novo.';
+      return;
+    }
     erro.textContent = e.message;
   } finally {
     btn.disabled = false;
