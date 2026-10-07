@@ -87,6 +87,51 @@
         <h2>Inscrever</h2>
         <div class="quem"><b id="nomeConhecido"></b><button class="link" onclick="trocarAtleta()">Não sou eu</button></div>
         <button class="principal" onclick="irParaConfirmar()">Continuar</button>
+        <button class="link" onclick="abrirMeusDados()">✏️ Corrigir meus dados</button>
+      </div>
+
+      <div id="blocoConfirmarDono" hidden>
+        <h2>Corrigir meus dados</h2>
+        <p class="aviso">Pra sua segurança, confirme seu CPF e data de nascimento atuais.</p>
+        <label for="donoCpf">CPF</label>
+        <input id="donoCpf" inputmode="numeric" placeholder="Só números">
+        <label for="donoDia">Data de nascimento</label>
+          <div class="data3" role="group" aria-label="Data de nascimento">
+            <div><input id="donoDia" inputmode="numeric" maxlength="2" placeholder="Dia" aria-label="Dia"><small>dia</small></div>
+            <span>/</span>
+            <div><input id="donoMes" inputmode="numeric" maxlength="2" placeholder="Mês" aria-label="Mês"><small>mês</small></div>
+            <span>/</span>
+            <div class="ano"><input id="donoAno" inputmode="numeric" maxlength="4" placeholder="Ano" aria-label="Ano"><small>ano (4 números)</small></div>
+          </div>
+        <button class="principal" id="btnDono" onclick="carregarMeusDados()">Continuar</button>
+        <button class="link" onclick="mostrarConhecido()">Voltar</button>
+        <div class="erro" id="erroDono"></div>
+      </div>
+
+      <div id="blocoEditar" hidden>
+        <h2>Corrigir meus dados</h2>
+        <label for="edNome">Nome completo</label>
+        <input id="edNome" autocomplete="name">
+        <label for="edDia">Data de nascimento</label>
+          <div class="data3" role="group" aria-label="Data de nascimento">
+            <div><input id="edDia" inputmode="numeric" maxlength="2" placeholder="Dia" aria-label="Dia"><small>dia</small></div>
+            <span>/</span>
+            <div><input id="edMes" inputmode="numeric" maxlength="2" placeholder="Mês" aria-label="Mês"><small>mês</small></div>
+            <span>/</span>
+            <div class="ano"><input id="edAno" inputmode="numeric" maxlength="4" placeholder="Ano" aria-label="Ano"><small>ano (4 números)</small></div>
+          </div>
+        <label for="edSexo">Sexo</label>
+        <select id="edSexo"><option value="M">Masculino</option><option value="F">Feminino</option></select>
+        <label for="edEmail">E-mail</label>
+        <input id="edEmail" type="email" autocomplete="email">
+        <label for="edTel">Celular (WhatsApp)</label>
+        <input id="edTel" type="tel" inputmode="tel" autocomplete="tel">
+        <label for="edCidade">Cidade onde mora</label>
+        <input id="edCidade" autocomplete="address-level2">
+        <p class="aviso">O CPF não pode ser trocado aqui. Se estiver errado, fale com a organização.</p>
+        <button class="principal" id="btnSalvarDados" onclick="salvarMeusDados()">Salvar</button>
+        <button class="link" onclick="mostrarConhecido()">Cancelar</button>
+        <div class="erro" id="erroEditar"></div>
       </div>
 
       <div id="blocoNovo" hidden>
@@ -206,7 +251,7 @@ function atletaLembrado() {
 }
 
 // Data em 3 caixas (dia, mês, ano): só números e pula sozinho pra próxima
-['nasc', 'nascEntrar'].forEach(pre => {
+['nasc', 'nascEntrar', 'dono', 'ed'].forEach(pre => {
   const dia = document.getElementById(pre + 'Dia');
   const mes = document.getElementById(pre + 'Mes');
   const ano = document.getElementById(pre + 'Ano');
@@ -309,7 +354,7 @@ async function prepararAtleta() {
 }
 
 function esconderBlocos() {
-  ['blocoConhecido', 'blocoNovo', 'blocoEntrar'].forEach(b => document.getElementById(b).hidden = true);
+  ['blocoConhecido', 'blocoNovo', 'blocoEntrar', 'blocoConfirmarDono', 'blocoEditar'].forEach(b => document.getElementById(b).hidden = true);
 }
 function mostrarConhecido() {
   esconderBlocos();
@@ -329,6 +374,74 @@ document.addEventListener('visibilitychange', () => {
   const naTela = !document.getElementById('passoAtleta').hidden || !document.getElementById('passoConfirmar').hidden;
   if (naTela) prepararAtleta();
 });
+
+
+// Corrigir os próprios dados (confirma CPF + nascimento antes)
+let donoConfirmado = null; // { cpf, nasc }
+function abrirMeusDados() {
+  esconderBlocos();
+  document.getElementById('erroDono').textContent = '';
+  document.getElementById('blocoConfirmarDono').hidden = false;
+}
+
+function preencherData(pre, iso) {
+  const [a, m, d] = String(iso || '').split('-');
+  document.getElementById(pre + 'Dia').value = d || '';
+  document.getElementById(pre + 'Mes').value = m || '';
+  document.getElementById(pre + 'Ano').value = a || '';
+}
+
+async function carregarMeusDados() {
+  const erro = document.getElementById('erroDono');
+  erro.textContent = '';
+  const cpf = document.getElementById('donoCpf').value.replace(/\D/g, '');
+  const nasc = dataParaServidor(lerData('dono'));
+  if (cpf.length !== 11) { erro.textContent = 'Informe o CPF com 11 números.'; return; }
+  if (!nasc) { erro.textContent = 'Data de nascimento inválida. Confira dia, mês e ano (ano com 4 números, ex: 1985).'; return; }
+  const btn = document.getElementById('btnDono');
+  btn.disabled = true;
+  try {
+    const d = await api(`/atletas/${atleta.id}/meus-dados`, { cpf, data_nascimento: nasc });
+    donoConfirmado = { cpf, nasc };
+    document.getElementById('edNome').value = d.nome || '';
+    preencherData('ed', d.data_nascimento);
+    document.getElementById('edSexo').value = d.sexo || 'M';
+    document.getElementById('edEmail').value = d.email || '';
+    document.getElementById('edTel').value = d.telefone || '';
+    document.getElementById('edCidade').value = d.cidade || '';
+    document.getElementById('erroEditar').textContent = '';
+    esconderBlocos();
+    document.getElementById('blocoEditar').hidden = false;
+  } catch (e) {
+    erro.textContent = e.message;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function salvarMeusDados() {
+  const erro = document.getElementById('erroEditar');
+  erro.textContent = '';
+  const v = id => document.getElementById(id).value.trim();
+  const nasc = dataParaServidor(lerData('ed'));
+  if (!nasc) { erro.textContent = 'Data de nascimento inválida. Confira dia, mês e ano (ano com 4 números, ex: 1985).'; return; }
+  const btn = document.getElementById('btnSalvarDados');
+  btn.disabled = true;
+  try {
+    const r = await api(`/atletas/${atleta.id}/editar-meus-dados`, {
+      cpf_atual: donoConfirmado.cpf, nasc_atual: donoConfirmado.nasc,
+      nome: v('edNome'), data_nascimento: nasc, sexo: v('edSexo'),
+      email: v('edEmail'), telefone: v('edTel').replace(/\D/g, ''), cidade: v('edCidade')
+    });
+    lembrarAtleta({ id: atleta.id, nome: r.nome, cidade: r.cidade });
+    mostrarConhecido();
+    document.getElementById('nomeConhecido').textContent = r.nome + ' ✅ dados salvos';
+  } catch (e) {
+    erro.textContent = e.message;
+  } finally {
+    btn.disabled = false;
+  }
+}
 
 function trocarAtleta() {
   atleta = null;

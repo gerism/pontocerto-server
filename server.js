@@ -790,7 +790,7 @@ app.post('/admin/eventos/:id/inscritos', async (req, res) => {
   try {
     const result = await pool.query(
       `SELECT
-         a.nome, a.cpf, a.telefone, a.sexo, a.cidade,
+         i.atleta_id, a.nome, a.cpf, a.telefone, a.sexo, a.cidade,
          DATE_PART('year', AGE(a.data_nascimento))::int AS idade,
          c.nome AS categoria_nome,
          i.id AS inscricao_id, i.numero_peito, i.tag_epc, i.hora_largada, i.hora_chegada, i.tempo_total,
@@ -1026,6 +1026,142 @@ app.post('/admin/inscricoes/:id/kit-entregue', async (req, res) => {
 
 // Exclui o cadastro de um atleta pelo CPF — útil principalmente pra você
 // mesmo apagar cadastros de teste sem precisar mexer direto no banco.
+// ============================================
+// EDITAR CADASTRO DO ATLETA
+// ============================================
+
+// Depois de mudar nascimento ou sexo, a categoria pode mudar
+async function recalcularCategoriasDoAtleta(atletaId) {
+  await pool.query(
+    `UPDATE inscricoes i SET categoria_id = (
+       SELECT c.id FROM categorias_evento c, atletas a
+       WHERE a.id = i.atleta_id AND c.evento_id = i.evento_id
+         AND DATE_PART('year', AGE(a.data_nascimento)) BETWEEN c.idade_min AND c.idade_max
+         AND (c.sexo = a.sexo OR c.sexo IS NULL)
+       ORDER BY c.sexo NULLS LAST
+       LIMIT 1
+     )
+     WHERE i.atleta_id = $1 AND i.pagamento_status = 'pago'`,
+    [atletaId]
+  );
+}
+
+function limparDadosAtleta(b) {
+  const txt = v => String(v ?? '').trim();
+  return {
+    nome: txt(b.nome),
+    cpf: txt(b.cpf).replace(/\D/g, ''),
+    email: txt(b.email),
+    data_nascimento: txt(b.data_nascimento),
+    sexo: ['M', 'F'].includes(b.sexo) ? b.sexo : null,
+    telefone: txt(b.telefone).replace(/\D/g, ''),
+    cidade: txt(b.cidade)
+  };
+}
+
+async function gravarAtleta(id, d, mudarCpf) {
+  const r = await pool.query(
+    `UPDATE atletas SET
+       nome = $1, email = $2, data_nascimento = $3::date, sexo = $4, telefone = $5, cidade = $6,
+       cpf = CASE WHEN $8::boolean THEN $7 ELSE cpf END,
+       atualizado_em = NOW()
+     WHERE id = $9
+     RETURNING id, nome, cidade`,
+    [d.nome, d.email, d.data_nascimento, d.sexo, d.telefone, d.cidade, d.cpf, !!mudarCpf, id]
+  );
+  if (r.rows.length) await recalcularCategoriasDoAtleta(id);
+  return r.rows[0];
+}
+
+// Admin: dados completos pra preencher o formulário
+app.post('/admin/atletas/:id/dados', async (req, res) => {
+  if (req.body.senha !== ADMIN_PASSWORD) return res.status(401).json({ erro: 'Senha incorreta.' });
+  try {
+    const r = await pool.query(
+      `SELECT id, nome, cpf, email, to_char(data_nascimento, 'YYYY-MM-DD') AS data_nascimento,
+              sexo, telefone, cidade
+       FROM atletas WHERE id = $1`, [req.params.id]
+    );
+    if (!r.rows.length) return res.status(404).json({ erro: 'Atleta não encontrado.' });
+    res.json(r.rows[0]);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ erro: 'Erro ao buscar atleta.' });
+  }
+});
+
+// Admin: salvar (no PC, salva também no site)
+app.post('/admin/atletas/:id/editar', async (req, res) => {
+  const { senha } = req.body;
+  if (senha !== ADMIN_PASSWORD) return res.status(401).json({ erro: 'Senha incorreta.' });
+  const d = limparDadosAtleta(req.body);
+  if (!d.nome || !d.data_nascimento || !d.sexo) return res.status(400).json({ erro: 'Nome, nascimento e sexo são obrigatórios.' });
+  if (d.cpf.length !== 11) return res.status(400).json({ erro: 'O CPF precisa ter 11 números.' });
+
+  try {
+    let aviso = null;
+    if (MODO_LOCAL) {
+      try {
+        await chamarOnline(`/admin/atletas/${req.params.id}/editar`, { senha, ...d });
+      } catch (e) {
+        if (e.semInternet) aviso = 'Sem internet: alterado só no PC. Edite de novo quando conectar.';
+        else if (e.status !== 404) return res.status(e.status || 500).json({ erro: e.message });
+      }
+    }
+    const a = await gravarAtleta(req.params.id, d, true);
+    if (!a) return res.status(404).json({ erro: 'Atleta não encontrado.' });
+    res.json({ sucesso: true, nome: a.nome, aviso });
+  } catch (err) {
+    if (err.code === '23505') return res.status(409).json({ erro: 'Já existe outro atleta com esse CPF.' });
+    console.error(err);
+    res.status(500).json({ erro: 'Erro ao salvar atleta.' });
+  }
+});
+
+// Atleta (página web): confere CPF + nascimento atual antes de deixar editar
+async function conferirDono(id, cpf, nasc) {
+  const r = await pool.query(
+    `SELECT id FROM atletas
+     WHERE id = $1 AND regexp_replace(cpf, '\\D', '', 'g') = $2 AND data_nascimento = $3::date`,
+    [id, String(cpf || '').replace(/\D/g, ''), nasc]
+  );
+  return r.rows.length > 0;
+}
+
+app.post('/atletas/:id/meus-dados', async (req, res) => {
+  try {
+    if (!(await conferirDono(req.params.id, req.body.cpf, req.body.data_nascimento))) {
+      return res.status(403).json({ erro: 'CPF e data de nascimento não conferem.' });
+    }
+    const r = await pool.query(
+      `SELECT nome, email, to_char(data_nascimento, 'YYYY-MM-DD') AS data_nascimento, sexo, telefone, cidade
+       FROM atletas WHERE id = $1`, [req.params.id]
+    );
+    res.json(r.rows[0]);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ erro: 'Erro ao buscar seus dados.' });
+  }
+});
+
+app.post('/atletas/:id/editar-meus-dados', async (req, res) => {
+  const { cpf_atual, nasc_atual } = req.body;
+  const d = limparDadosAtleta(req.body);
+  if (!d.nome || !d.data_nascimento || !d.sexo || !d.email || !d.telefone || !d.cidade) {
+    return res.status(400).json({ erro: 'Preencha todos os campos.' });
+  }
+  try {
+    if (!(await conferirDono(req.params.id, cpf_atual, nasc_atual))) {
+      return res.status(403).json({ erro: 'CPF e data de nascimento não conferem.' });
+    }
+    const a = await gravarAtleta(req.params.id, d, false); // atleta não troca o próprio CPF
+    res.json({ sucesso: true, nome: a.nome, cidade: a.cidade });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ erro: 'Erro ao salvar seus dados.' });
+  }
+});
+
 app.post('/admin/atletas/excluir-por-cpf', async (req, res) => {
   const { senha, cpf } = req.body;
   if (senha !== ADMIN_PASSWORD) return res.status(401).json({ erro: 'Senha incorreta.' });

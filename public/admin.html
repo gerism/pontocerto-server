@@ -363,6 +363,27 @@
     </div>
   </div>
 
+
+  <!-- Editar cadastro do atleta -->
+  <div id="modalAtleta" style="display:none; position:fixed; inset:0; background:#000a; z-index:50; overflow-y:auto; padding:24px 16px;">
+    <div style="max-width:460px; margin:0 auto; background:#1a1d24; border:1px solid #2c3038; border-radius:14px; padding:20px;">
+      <h2 style="font-size:17px; margin:0 0 6px;">✏️ Editar cadastro</h2>
+      <label>Nome</label><input type="text" id="edNome">
+      <label>CPF</label><input type="text" id="edCpf" inputmode="numeric">
+      <label>Data de nascimento</label><input type="date" id="edNasc">
+      <label>Sexo</label>
+      <select id="edSexo"><option value="M">Masculino</option><option value="F">Feminino</option></select>
+      <label>Cidade</label><input type="text" id="edCidade">
+      <label>E-mail</label><input type="email" id="edEmail">
+      <label>Celular</label><input type="text" id="edTel" inputmode="tel">
+      <div style="font-size:11.5px; color:#9a9ba3; margin-top:8px;">Mudando nascimento ou sexo, a categoria é recalculada sozinha.</div>
+      <div style="display:flex; gap:8px; margin-top:14px;">
+        <button type="button" class="acao" style="margin:0;" onclick="salvarAtleta()">💾 Salvar</button>
+        <button type="button" class="acao" style="margin:0; background:#1a1d24; color:#f3ede4; border:1px solid #2c3038;" onclick="fecharEditarAtleta()">Cancelar</button>
+      </div>
+      <div id="edErro" class="erro" style="margin-top:10px;"></div>
+    </div>
+  </div>
 <script>
 function alternarSenha(campoId, botao) {
   const campo = document.getElementById(campoId);
@@ -648,7 +669,7 @@ async function carregarInscritos() {
         ${inscritos.map(i => `
           <tr id="linha-${i.inscricao_id}" class="${i.kit_entregue ? 'linha-pronta' : ''}">
             <td>${i.numero_peito ?? '-'}</td>
-            <td>${i.nome}</td>
+            <td><span style="cursor:pointer;" title="Editar cadastro" onclick="abrirEditarAtleta(${i.atleta_id})">✏️ ${i.nome}</span></td>
             <td>${i.cidade || '-'}</td>
             <td>${i.idade}</td>
             <td>${i.categoria_nome || '⚠️ sem categoria'}</td>
@@ -1468,6 +1489,65 @@ async function excluirAtletaPorCpf() {
     if (eventoSelecionadoId) carregarInscritos();
   } catch (e) {
     alert('❌ Erro de conexão com o servidor.');
+  }
+}
+
+// ============================================
+// EDITAR CADASTRO DO ATLETA
+// ============================================
+let atletaEmEdicao = null;
+
+async function abrirEditarAtleta(id) {
+  const senha = document.getElementById('senhaInscritos').value.trim();
+  try {
+    const resp = await fetch(`/admin/atletas/${id}/dados`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ senha })
+    });
+    const a = await resp.json();
+    if (!resp.ok) { alert('❌ ' + (a.erro || 'Não foi possível abrir.')); return; }
+    atletaEmEdicao = id;
+    document.getElementById('edNome').value = a.nome || '';
+    document.getElementById('edCpf').value = a.cpf || '';
+    document.getElementById('edNasc').value = a.data_nascimento || '';
+    document.getElementById('edSexo').value = a.sexo || 'M';
+    document.getElementById('edCidade').value = a.cidade || '';
+    document.getElementById('edEmail').value = a.email || '';
+    document.getElementById('edTel').value = a.telefone || '';
+    document.getElementById('edErro').textContent = '';
+    document.getElementById('modalAtleta').style.display = 'block';
+  } catch (e) {
+    alert('❌ Erro de conexão com o servidor.');
+  }
+}
+
+function fecharEditarAtleta() {
+  atletaEmEdicao = null;
+  document.getElementById('modalAtleta').style.display = 'none';
+}
+
+async function salvarAtleta() {
+  const senha = document.getElementById('senhaInscritos').value.trim();
+  const v = id => document.getElementById(id).value.trim();
+  const erro = document.getElementById('edErro');
+  erro.textContent = 'Salvando...';
+  try {
+    const resp = await fetch(`/admin/atletas/${atletaEmEdicao}/editar`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        senha, nome: v('edNome'), cpf: v('edCpf'), data_nascimento: v('edNasc'), sexo: v('edSexo'),
+        cidade: v('edCidade'), email: v('edEmail'), telefone: v('edTel')
+      })
+    });
+    const d = await resp.json();
+    if (!resp.ok) { erro.textContent = '❌ ' + (d.erro || 'Não foi possível salvar.'); return; }
+    fecharEditarAtleta();
+    if (d.aviso) alert('⚠️ ' + d.aviso);
+    carregarInscritos();
+  } catch (e) {
+    erro.textContent = '❌ Erro de conexão com o servidor.';
   }
 }
 atualizarBotoesCrono();
