@@ -26,7 +26,17 @@ const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
 pool.query(`ALTER TABLE eventos
              ADD COLUMN IF NOT EXISTS gratuito BOOLEAN NOT NULL DEFAULT false,
              ADD COLUMN IF NOT EXISTS inscricoes_abertas BOOLEAN NOT NULL DEFAULT true`)
-  .catch(err => console.error('Erro ao ajustar tabela eventos:', err.message));
+  .then(() => pool.query(`ALTER TABLE inscricoes ADD COLUMN IF NOT EXISTS numero_peito INT`))
+  .then(() => pool.query(`
+    UPDATE inscricoes i SET numero_peito = n.num
+    FROM (
+      SELECT id, ROW_NUMBER() OVER (PARTITION BY evento_id ORDER BY criado_em, id)
+             + COALESCE((SELECT MAX(numero_peito) FROM inscricoes x WHERE x.evento_id = i2.evento_id), 0) AS num
+      FROM inscricoes i2
+      WHERE pagamento_status = 'pago' AND numero_peito IS NULL
+    ) n
+    WHERE i.id = n.id`))
+  .catch(err => console.error('Erro ao ajustar tabelas:', err.message));
 const MODO_LOCAL = !!process.env.MODO_LOCAL;
 const SERVIDOR_ONLINE = (process.env.SERVIDOR_ONLINE || '').replace(/\/$/, '');
 
@@ -167,7 +177,7 @@ app.get('/eventos/:id/resultados', async (req, res) => {
   try {
     const result = await pool.query(
       `SELECT
-         i.id AS numero,
+         COALESCE(i.numero_peito, i.id) AS numero,
          a.nome,
          a.sexo AS genero,
          DATE_PART('year', AGE(a.data_nascimento))::int AS idade,
@@ -317,13 +327,39 @@ async function confirmarInscricao(inscricaoId) {
     `UPDATE inscricoes SET pagamento_status = 'pago', categoria_id = $1 WHERE id = $2`,
     [categoria.rows[0]?.id || null, inscricaoId]
   );
+  await darNumeroDePeito(inscricaoId);
+}
+
+// Número do atleta na corrida: começa em 1 em cada evento, na ordem em que
+// as inscrições são confirmadas. Quem já tem número não muda.
+async function darNumeroDePeito(inscricaoId) {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const ins = await client.query('SELECT evento_id, numero_peito FROM inscricoes WHERE id = $1', [inscricaoId]);
+    if (!ins.rows.length || ins.rows[0].numero_peito) { await client.query('COMMIT'); return; }
+    const eventoId = ins.rows[0].evento_id;
+    await client.query('SELECT pg_advisory_xact_lock(4242, $1)', [eventoId]); // um de cada vez por evento
+    await client.query(
+      `UPDATE inscricoes SET numero_peito =
+         (SELECT COALESCE(MAX(numero_peito), 0) + 1 FROM inscricoes WHERE evento_id = $1)
+       WHERE id = $2 AND numero_peito IS NULL`,
+      [eventoId, inscricaoId]
+    );
+    await client.query('COMMIT');
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('Erro ao dar número:', err.message);
+  } finally {
+    client.release();
+  }
 }
 
 // Situação de uma inscrição (a página web consulta enquanto espera o Pix)
 app.get('/inscricoes/:id/status', async (req, res) => {
   try {
     const r = await pool.query(
-      `SELECT i.id, i.pagamento_status, c.nome AS categoria_nome
+      `SELECT i.id, i.numero_peito, i.pagamento_status, c.nome AS categoria_nome
        FROM inscricoes i LEFT JOIN categorias_evento c ON c.id = i.categoria_id
        WHERE i.id = $1`,
       [req.params.id]
@@ -405,6 +441,7 @@ app.post('/webhook-pagamento-evento', async (req, res) => {
           `UPDATE inscricoes SET pagamento_status = 'pago', categoria_id = $1 WHERE id = $2`,
           [categoriaId, inscricaoId]
         );
+        await darNumeroDePeito(inscricaoId);
 
         const atletaDaInscricao = await pool.query(
           `SELECT atleta_id FROM inscricoes WHERE id = $1`,
@@ -745,7 +782,7 @@ app.post('/admin/eventos/:id/inscritos', async (req, res) => {
          a.nome, a.cpf, a.telefone, a.sexo,
          DATE_PART('year', AGE(a.data_nascimento))::int AS idade,
          c.nome AS categoria_nome,
-         i.id AS inscricao_id, i.tag_epc, i.hora_largada, i.hora_chegada, i.tempo_total,
+         i.id AS inscricao_id, i.numero_peito, i.tag_epc, i.hora_largada, i.hora_chegada, i.tempo_total,
          i.quer_camisa, i.camisa_tipo, i.camisa_tamanho, i.kit_entregue
        FROM inscricoes i
        JOIN atletas a ON a.id = i.atleta_id
@@ -772,7 +809,7 @@ app.post('/admin/eventos/:id/resultados', async (req, res) => {
   try {
     const result = await pool.query(
       `SELECT
-         i.id AS numero, a.nome, a.sexo,
+         COALESCE(i.numero_peito, i.id) AS numero, a.nome, a.sexo,
          DATE_PART('year', AGE(a.data_nascimento))::int AS idade,
          c.nome AS categoria_nome,
          i.categoria_id,
@@ -948,6 +985,7 @@ app.post('/admin/inscricoes/:id/vincular-tag', async (req, res) => {
       `UPDATE inscricoes SET tag_epc = $1 WHERE id = $2 RETURNING *`,
       [tag_epc, id]
     );
+    if (MODO_LOCAL) setTimeout(cicloSync, 500); // leva pro site na hora
     res.json(result.rows[0]);
   } catch (err) {
     console.error(err);
@@ -967,6 +1005,7 @@ app.post('/admin/inscricoes/:id/kit-entregue', async (req, res) => {
       `UPDATE inscricoes SET kit_entregue = $1 WHERE id = $2 RETURNING *`,
       [!!kit_entregue, id]
     );
+    if (MODO_LOCAL) setTimeout(cicloSync, 500); // leva pro site na hora
     res.json(result.rows[0]);
   } catch (err) {
     console.error(err);
@@ -1046,9 +1085,12 @@ async function criarAtletaTeste(eventoId, nome, dataNascimento, sexo) {
      VALUES ($1, $2, 'pago', $3, false) RETURNING id`,
     [atletaId, eventoId, categoria.rows[0]?.id || null]
   );
+  await darNumeroDePeito(inscricao.rows[0].id);
+  const num = await pool.query('SELECT numero_peito FROM inscricoes WHERE id = $1', [inscricao.rows[0].id]);
 
   return {
     inscricao_id: inscricao.rows[0].id,
+    numero: num.rows[0].numero_peito,
     nome,
     idade,
     sexo,
@@ -1365,8 +1407,8 @@ async function cicloSync() {
         await baixarEventoDoOnline(evOn.id);
       }
 
-      if (!evOn.inscricoes_abertas) {
-        // modo corrida: manda os tempos se mudou algo desde o último envio
+      {
+        // sempre que algo mudou no PC (tag, kit, largada, chegada), manda pro site
         const marca = JSON.stringify((await pool.query(
           `SELECT id, hora_largada, hora_chegada, tag_epc, kit_entregue FROM inscricoes
            WHERE evento_id = $1 ORDER BY id`, [evOn.id])).rows);
