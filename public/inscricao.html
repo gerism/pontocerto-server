@@ -87,8 +87,9 @@
         <input id="nome" autocomplete="name">
         <div class="linha2">
           <div><label for="cpf">CPF</label><input id="cpf" inputmode="numeric" placeholder="Só números"></div>
-          <div><label for="nasc">Nascimento</label><input id="nasc" type="date"></div>
+          <div><label for="nasc">Nascimento</label><input id="nasc" class="data" inputmode="numeric" maxlength="10" placeholder="DD/MM/AAAA"></div>
         </div>
+        <p class="aviso">Nascimento: digite só os números, as barras aparecem sozinhas. Ex: 15081985 vira 15/08/1985.</p>
         <label for="sexo">Sexo</label>
         <select id="sexo"><option value="">Escolha</option><option value="M">Masculino</option><option value="F">Feminino</option></select>
         <label for="email">E-mail</label>
@@ -105,7 +106,8 @@
         <label for="cpfEntrar">CPF</label>
         <input id="cpfEntrar" inputmode="numeric" placeholder="Só números">
         <label for="nascEntrar">Data de nascimento</label>
-        <input id="nascEntrar" type="date">
+        <input id="nascEntrar" class="data" inputmode="numeric" maxlength="10" placeholder="DD/MM/AAAA">
+        <p class="aviso">Digite só os números, as barras aparecem sozinhas. Ex: 15081985 vira 15/08/1985.</p>
         <button class="principal" id="btnEntrar" onclick="entrar()">Entrar</button>
         <button class="link" onclick="mostrarNovo()">Fazer cadastro novo</button>
         <div class="erro" id="erroEntrar"></div>
@@ -174,6 +176,27 @@ function lembrarAtleta(a) {
 }
 function atletaLembrado() {
   try { return JSON.parse(localStorage.getItem('pc_atleta') || 'null'); } catch (e) { return null; }
+}
+
+// Campo de data simples: digita 15081985 e vira 15/08/1985
+document.querySelectorAll('input.data').forEach(campo => {
+  campo.addEventListener('input', () => {
+    const n = campo.value.replace(/\D/g, '').slice(0, 8);
+    campo.value = n.length > 4 ? `${n.slice(0, 2)}/${n.slice(2, 4)}/${n.slice(4)}`
+      : n.length > 2 ? `${n.slice(0, 2)}/${n.slice(2)}` : n;
+  });
+});
+
+// "15/08/1985" -> "1985-08-15" (ou null se não for uma data válida)
+function dataParaServidor(texto) {
+  const m = String(texto).match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  if (!m) return null;
+  const [, d, mes, a] = m.map(Number);
+  const dt = new Date(a, mes - 1, d);
+  const ano = new Date().getFullYear();
+  if (dt.getFullYear() !== a || dt.getMonth() !== mes - 1 || dt.getDate() !== d) return null;
+  if (a < ano - 100 || a > ano - 3) return null;
+  return `${m[3]}-${m[2]}-${m[1]}`;
 }
 
 function mostrar(id) {
@@ -274,14 +297,15 @@ async function cadastrar() {
     device_id: deviceId(),
     nome: v('nome'),
     cpf: v('cpf').replace(/\D/g, ''),
-    data_nascimento: v('nasc'),
+    data_nascimento: dataParaServidor(v('nasc')),
     sexo: v('sexo'),
     email: v('email'),
     telefone: v('tel').replace(/\D/g, '')
   };
-  if (!corpo.nome || !corpo.data_nascimento || !corpo.sexo || !corpo.email || !corpo.telefone) {
+  if (!corpo.nome || !v('nasc') || !corpo.sexo || !corpo.email || !corpo.telefone) {
     erro.textContent = 'Preencha todos os campos.'; return;
   }
+  if (!corpo.data_nascimento) { erro.textContent = 'Data de nascimento inválida. Use dia/mês/ano, ex: 15/08/1985.'; return; }
   if (corpo.cpf.length !== 11) { erro.textContent = 'O CPF precisa ter 11 números.'; return; }
 
   const btn = document.getElementById('btnCadastrar');
@@ -302,8 +326,9 @@ async function entrar() {
   const erro = document.getElementById('erroEntrar');
   erro.textContent = '';
   const cpf = document.getElementById('cpfEntrar').value.replace(/\D/g, '');
-  const data_nascimento = document.getElementById('nascEntrar').value;
-  if (cpf.length !== 11 || !data_nascimento) { erro.textContent = 'Informe o CPF (11 números) e a data de nascimento.'; return; }
+  const data_nascimento = dataParaServidor(document.getElementById('nascEntrar').value);
+  if (cpf.length !== 11) { erro.textContent = 'Informe o CPF com 11 números.'; return; }
+  if (!data_nascimento) { erro.textContent = 'Data de nascimento inválida. Use dia/mês/ano, ex: 15/08/1985.'; return; }
   const btn = document.getElementById('btnEntrar');
   btn.disabled = true;
   try {
