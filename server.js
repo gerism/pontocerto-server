@@ -23,7 +23,9 @@ const pool = new Pool({
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
 
 // Ajustes de banco que rodam sozinhos ao ligar (no Railway e no PC).
-pool.query(`ALTER TABLE eventos ADD COLUMN IF NOT EXISTS gratuito BOOLEAN NOT NULL DEFAULT false`)
+pool.query(`ALTER TABLE eventos
+             ADD COLUMN IF NOT EXISTS gratuito BOOLEAN NOT NULL DEFAULT false,
+             ADD COLUMN IF NOT EXISTS inscricoes_abertas BOOLEAN NOT NULL DEFAULT true`)
   .catch(err => console.error('Erro ao ajustar tabela eventos:', err.message));
 const MODO_LOCAL = !!process.env.MODO_LOCAL;
 const SERVIDOR_ONLINE = (process.env.SERVIDOR_ONLINE || '').replace(/\/$/, '');
@@ -111,7 +113,7 @@ app.get('/atletas/meu', async (req, res) => {
 app.get('/eventos/ativos', async (req, res) => {
   try {
     const result = await pool.query(
-      `SELECT id, nome, codigo, data_evento, valor_inscricao, oferece_camisa, gratuito
+      `SELECT id, nome, codigo, data_evento, valor_inscricao, oferece_camisa, gratuito, inscricoes_abertas
        FROM eventos
        WHERE ativo = true
        ORDER BY data_evento ASC`
@@ -205,6 +207,9 @@ app.post('/eventos/:eventoId/inscrever', async (req, res) => {
     const evento = await pool.query('SELECT * FROM eventos WHERE id = $1 AND ativo = true', [eventoId]);
     if (evento.rows.length === 0) {
       return res.status(404).json({ erro: 'Evento não encontrado ou encerrado' });
+    }
+    if (evento.rows[0].inscricoes_abertas === false) {
+      return res.status(403).json({ erro: 'As inscrições desse evento estão encerradas.' });
     }
 
     // Só aceita escolha de camisa se o evento realmente oferecer, e exige
@@ -456,7 +461,21 @@ app.get('/atletas/:id/inscricoes', async (req, res) => {
 // ADMIN (organizador)
 // ============================================
 
+// No PC, criar e editar evento acontece primeiro no online (onde os atletas
+// se inscrevem) e depois é copiado pro PC com o mesmo id.
+async function eventoPeloOnline(req, res, rota) {
+  try {
+    const ev = await chamarOnline(rota, req.body);
+    await baixarEventoDoOnline(ev.id);
+    res.json(ev);
+  } catch (err) {
+    if (err.semInternet) return res.status(502).json({ erro: 'Sem internet: criar ou editar evento precisa de internet (o site é atualizado na hora).' });
+    res.status(err.status || 500).json({ erro: err.message });
+  }
+}
+
 app.post('/admin/eventos', async (req, res) => {
+  if (MODO_LOCAL && req.body.senha === ADMIN_PASSWORD) return eventoPeloOnline(req, res, '/admin/eventos');
   const { senha, nome, codigo, data_evento, categorias, oferece_camisa, gratuito } = req.body;
   const valor_inscricao = gratuito ? 0 : req.body.valor_inscricao;
 
@@ -546,6 +565,7 @@ app.post('/admin/eventos/:id/detalhes', async (req, res) => {
 // e no final recalcula a categoria de todos os inscritos pagos do evento.
 app.post('/admin/eventos/:id/editar', async (req, res) => {
   const { id } = req.params;
+  if (MODO_LOCAL && req.body.senha === ADMIN_PASSWORD) return eventoPeloOnline(req, res, `/admin/eventos/${id}/editar`);
   const { senha, nome, codigo, data_evento, categorias, oferece_camisa, gratuito } = req.body;
   const valor_inscricao = gratuito ? 0 : req.body.valor_inscricao;
   if (senha !== ADMIN_PASSWORD) return res.status(401).json({ erro: 'Senha incorreta.' });
@@ -1088,10 +1108,17 @@ app.post('/admin/sync/exportar', async (req, res) => {
     const atletas = await pool.query(
       'SELECT * FROM atletas WHERE id IN (SELECT atleta_id FROM inscricoes WHERE evento_id = $1)', [evento_id]
     );
+    // Datas (sem hora) viram texto AAAA-MM-DD aqui mesmo, senão o fuso do
+    // PC pode mudar o dia (aniversário 01/01 virar 31/12 e trocar categoria).
+    const soData = d => d instanceof Date
+      ? `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+      : d;
+    const ev = { ...evento.rows[0], data_evento: soData(evento.rows[0].data_evento) };
+    const atl = atletas.rows.map(a => ({ ...a, data_nascimento: soData(a.data_nascimento) }));
     res.json({
-      evento: evento.rows[0],
+      evento: ev,
       categorias: categorias.rows,
-      atletas: atletas.rows,
+      atletas: atl,
       inscricoes: inscricoes.rows
     });
   } catch (err) {
@@ -1100,7 +1127,8 @@ app.post('/admin/sync/exportar', async (req, res) => {
   }
 });
 
-// --- Lado ONLINE (Railway): recebe os horários do PC depois da corrida
+// --- Lado ONLINE (Railway): recebe os horários do PC depois da corrida.
+// Confere id + evento + CPF, pra nunca gravar no atleta errado.
 app.post('/admin/sync/importar-resultados', async (req, res) => {
   const { senha, evento_id, inscricoes } = req.body;
   if (senha !== ADMIN_PASSWORD) return res.status(401).json({ erro: 'Senha incorreta.' });
@@ -1112,9 +1140,11 @@ app.post('/admin/sync/importar-resultados', async (req, res) => {
     let atualizados = 0;
     for (const i of inscricoes) {
       const r = await client.query(
-        `UPDATE inscricoes SET hora_largada = $1, hora_chegada = $2, tag_epc = $3, kit_entregue = $4
-         WHERE id = $5 AND evento_id = $6`,
-        [i.hora_largada, i.hora_chegada, i.tag_epc, !!i.kit_entregue, i.id, evento_id]
+        `UPDATE inscricoes ins SET hora_largada = $1, hora_chegada = $2, tag_epc = $3, kit_entregue = $4
+         FROM atletas a
+         WHERE ins.id = $5 AND ins.evento_id = $6 AND a.id = ins.atleta_id
+           AND ($7::text IS NULL OR regexp_replace(a.cpf, '\\D', '', 'g') = regexp_replace($7::text, '\\D', '', 'g'))`,
+        [i.hora_largada, i.hora_chegada, i.tag_epc, !!i.kit_entregue, i.id, evento_id, i.cpf || null]
       );
       atualizados += r.rowCount;
     }
@@ -1138,13 +1168,21 @@ async function chamarOnline(rota, corpo) {
     resp = await fetch(`${SERVIDOR_ONLINE}${rota}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(corpo)
+      body: JSON.stringify(corpo),
+      signal: AbortSignal.timeout(15000)
     });
   } catch (e) {
-    throw new Error('Sem conexão com o servidor online. Confira a internet.');
+    const erro = new Error('Sem conexão com o servidor online. Confira a internet.');
+    erro.semInternet = true;
+    throw erro;
   }
-  const dados = await resp.json();
-  if (!resp.ok) throw new Error(dados.erro || 'Erro no servidor online.');
+  let dados = {};
+  try { dados = await resp.json(); } catch (e) {}
+  if (!resp.ok) {
+    const erro = new Error(dados.erro || 'Erro no servidor online.');
+    erro.status = resp.status;
+    throw erro;
+  }
   return dados;
 }
 
@@ -1160,13 +1198,16 @@ async function colunasGeradas(client, tabela) {
   return colunasGeradasCache[tabela];
 }
 
-// Insere (ou atualiza, se o id já existir) mantendo o mesmo id do online
-async function upsert(client, tabela, linha) {
+// Insere (ou atualiza, se o id já existir) mantendo o mesmo id do online.
+// "manterLocal": colunas em que o valor do PC vence quando ele já existe.
+async function upsert(client, tabela, linha, manterLocal = []) {
   const pular = await colunasGeradas(client, tabela);
   const cols = Object.keys(linha).filter(c => !pular.includes(c));
   const valores = cols.map(c => linha[c]);
   const marcas = cols.map((_, i) => `$${i + 1}`);
-  const sets = cols.filter(c => c !== 'id').map(c => `${c} = EXCLUDED.${c}`);
+  const sets = cols.filter(c => c !== 'id').map(c =>
+    manterLocal.includes(c) ? `${c} = COALESCE(${tabela}.${c}, EXCLUDED.${c})` : `${c} = EXCLUDED.${c}`
+  );
   await client.query(
     `INSERT INTO ${tabela} (${cols.join(', ')}) VALUES (${marcas.join(', ')})
      ON CONFLICT (id) DO UPDATE SET ${sets.join(', ')}`,
@@ -1174,45 +1215,46 @@ async function upsert(client, tabela, linha) {
   );
 }
 
+// No PC, o que for criado só aqui (atletas de teste etc.) ganha id a partir
+// de 1.000.000, pra nunca bater com um id que vem do online.
 async function acertarSequencia(client, tabela) {
   await client.query(
-    `SELECT setval(pg_get_serial_sequence('${tabela}', 'id'), COALESCE((SELECT MAX(id) FROM ${tabela}), 1))`
+    `SELECT setval(pg_get_serial_sequence('${tabela}', 'id'),
+       GREATEST(COALESCE((SELECT MAX(id) FROM ${tabela}), 1), 1000000))`
   );
 }
 
-// --- Lado PC: lista os eventos que existem no online
-app.post('/admin/sync/eventos-online', async (req, res) => {
-  const { senha } = req.body;
-  if (senha !== ADMIN_PASSWORD) return res.status(401).json({ erro: 'Senha incorreta.' });
-  try {
-    res.json(await chamarOnline('/admin/eventos/listar', { senha }));
-  } catch (err) {
-    res.status(502).json({ erro: err.message });
-  }
-});
-
-// --- Lado PC: baixa o evento do online e grava no Postgres do PC
-app.post('/admin/sync/baixar', async (req, res) => {
-  const { senha, evento_id } = req.body;
-  if (senha !== ADMIN_PASSWORD) return res.status(401).json({ erro: 'Senha incorreta.' });
-  if (!MODO_LOCAL) return res.status(400).json({ erro: 'Isso só funciona no servidor do PC.' });
-
-  let dados;
-  try {
-    dados = await chamarOnline('/admin/sync/exportar', { senha, evento_id });
-  } catch (err) {
-    return res.status(502).json({ erro: err.message });
-  }
-
+// Junta no PC o que veio do online, SEM apagar o que o PC registrou
+// (largada, chegada, tag e kit do PC sempre vencem).
+async function juntarEventoNoPC(dados) {
+  const ev = dados.evento;
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
 
-    // limpa o que o PC tinha desse evento e grava de novo igual ao online
-    await client.query('DELETE FROM inscricoes WHERE evento_id = $1', [evento_id]);
-    await client.query('DELETE FROM categorias_evento WHERE evento_id = $1', [evento_id]);
+    // evento antigo do PC com mesmo código e id diferente, ou mesmo id e código diferente
+    await client.query(
+      `DELETE FROM eventos WHERE (codigo = $1 AND id <> $2) OR (id = $2 AND codigo <> $1)`,
+      [ev.codigo, ev.id]
+    );
+    await upsert(client, 'eventos', ev);
 
-    // atleta antigo do PC com mesmo CPF/aparelho mas id diferente atrapalharia
+    // categorias: iguala às do online
+    const catIds = dados.categorias.map(c => c.id);
+    await client.query(
+      `UPDATE inscricoes SET categoria_id = NULL
+       WHERE categoria_id IN (SELECT id FROM categorias_evento
+         WHERE (evento_id = $1 AND NOT (id = ANY($2::int[]))) OR (id = ANY($2::int[]) AND evento_id <> $1))`,
+      [ev.id, catIds]
+    );
+    await client.query(
+      `DELETE FROM categorias_evento
+       WHERE (evento_id = $1 AND NOT (id = ANY($2::int[]))) OR (id = ANY($2::int[]) AND evento_id <> $1)`,
+      [ev.id, catIds]
+    );
+    for (const c of dados.categorias) await upsert(client, 'categorias_evento', c);
+
+    // atletas: tira do caminho cadastro do PC com mesmo CPF/aparelho e id diferente
     const ids = dados.atletas.map(a => a.id);
     const cpfs = dados.atletas.map(a => a.cpf);
     const devs = dados.atletas.map(a => a.device_id);
@@ -1225,45 +1267,189 @@ app.post('/admin/sync/baixar', async (req, res) => {
       `DELETE FROM atletas WHERE NOT (id = ANY($1::int[])) AND (cpf = ANY($2::text[]) OR device_id = ANY($3::text[]))`,
       [ids, cpfs, devs]
     );
-
-    await upsert(client, 'eventos', dados.evento);
-    for (const c of dados.categorias) await upsert(client, 'categorias_evento', c);
     for (const a of dados.atletas) await upsert(client, 'atletas', a);
-    for (const i of dados.inscricoes) await upsert(client, 'inscricoes', i);
+
+    // inscrições: tira do caminho conflitos de id e de atleta repetido no evento
+    const insIds = dados.inscricoes.map(i => i.id);
+    const insAtletas = dados.inscricoes.map(i => i.atleta_id);
+    await client.query(
+      `DELETE FROM inscricoes
+       WHERE (id = ANY($1::int[]) AND evento_id <> $2)
+          OR (evento_id = $2 AND atleta_id = ANY($3::int[]) AND NOT (id = ANY($1::int[])))`,
+      [insIds, ev.id, insAtletas]
+    );
+    for (const i of dados.inscricoes) {
+      await upsert(client, 'inscricoes', i, ['hora_largada', 'hora_chegada', 'tag_epc', 'kit_entregue']);
+    }
 
     for (const t of ['eventos', 'categorias_evento', 'atletas', 'inscricoes']) await acertarSequencia(client, t);
 
     await client.query('COMMIT');
-    res.json({
-      sucesso: true,
-      evento: dados.evento.nome,
-      inscritos: dados.inscricoes.filter(i => i.pagamento_status === 'pago').length
-    });
+    return { evento: ev.nome, inscritos: dados.inscricoes.filter(i => i.pagamento_status === 'pago').length };
   } catch (err) {
     await client.query('ROLLBACK');
-    console.error(err);
-    res.status(500).json({ erro: 'Erro ao gravar no PC: ' + err.message });
+    throw err;
   } finally {
     client.release();
   }
+}
+
+async function baixarEventoDoOnline(eventoId) {
+  const dados = await chamarOnline('/admin/sync/exportar', { senha: ADMIN_PASSWORD, evento_id: eventoId });
+  return juntarEventoNoPC(dados);
+}
+
+async function enviarResultadosProOnline(eventoId) {
+  const r = await pool.query(
+    `SELECT i.id, a.cpf, i.hora_largada, i.hora_chegada, i.tag_epc, i.kit_entregue
+     FROM inscricoes i JOIN atletas a ON a.id = i.atleta_id
+     WHERE i.evento_id = $1 AND i.pagamento_status = 'pago' AND a.device_id NOT LIKE 'teste-%'`,
+    [eventoId]
+  );
+  return chamarOnline('/admin/sync/importar-resultados', { senha: ADMIN_PASSWORD, evento_id: eventoId, inscricoes: r.rows });
+}
+
+// --- Lado PC: sincronização automática (a cada 1 minuto)
+// Inscrições abertas  -> PC copia do online (eventos, atletas, inscrições).
+// Inscrições encerradas -> PC não depende mais da internet; quando ela
+//                          existe, manda largadas/chegadas/tags pro online.
+const estadoSync = { online: false, ultima: null, ultimoEnvio: null, erro: null };
+const ultimoEnviado = {};
+let sincronizando = false;
+
+async function cicloSync() {
+  if (!MODO_LOCAL || sincronizando) return;
+  sincronizando = true;
+  try {
+    const online = await chamarOnline('/admin/eventos/listar', { senha: ADMIN_PASSWORD });
+    estadoSync.online = true;
+    const locais = (await pool.query('SELECT id, codigo, inscricoes_abertas FROM eventos')).rows;
+
+    for (const evOn of online) {
+      const local = locais.find(l => l.id === evOn.id && l.codigo === evOn.codigo);
+
+      if (local && !local.inscricoes_abertas && evOn.inscricoes_abertas) {
+        // encerrado no PC sem internet: leva o encerramento pro online
+        await chamarOnline('/admin/eventos/inscricoes-por-codigo', { senha: ADMIN_PASSWORD, codigo: evOn.codigo, abertas: false });
+        evOn.inscricoes_abertas = false;
+      }
+
+      if (!local || evOn.inscricoes_abertas || local.inscricoes_abertas) {
+        // aberto (ou acabou de fechar, ou é novo): copia do online
+        await baixarEventoDoOnline(evOn.id);
+      }
+
+      if (!evOn.inscricoes_abertas) {
+        // modo corrida: manda os tempos se mudou algo desde o último envio
+        const marca = JSON.stringify((await pool.query(
+          `SELECT id, hora_largada, hora_chegada, tag_epc, kit_entregue FROM inscricoes
+           WHERE evento_id = $1 ORDER BY id`, [evOn.id])).rows);
+        if (ultimoEnviado[evOn.id] !== marca) {
+          await enviarResultadosProOnline(evOn.id);
+          ultimoEnviado[evOn.id] = marca;
+          estadoSync.ultimoEnvio = new Date();
+        }
+      }
+    }
+    estadoSync.ultima = new Date();
+    estadoSync.erro = null;
+  } catch (err) {
+    estadoSync.online = !err.semInternet;
+    estadoSync.erro = err.message;
+    if (!err.semInternet) console.error('Sincronização:', err.message);
+  } finally {
+    sincronizando = false;
+  }
+}
+
+if (MODO_LOCAL) {
+  setTimeout(cicloSync, 5000);
+  setInterval(cicloSync, 60000);
+}
+
+app.get('/admin/sync/status', (req, res) => res.json(estadoSync));
+
+// --- Lado PC: lista os eventos que existem no online
+app.post('/admin/sync/eventos-online', async (req, res) => {
+  const { senha } = req.body;
+  if (senha !== ADMIN_PASSWORD) return res.status(401).json({ erro: 'Senha incorreta.' });
+  try {
+    res.json(await chamarOnline('/admin/eventos/listar', { senha }));
+  } catch (err) {
+    res.status(502).json({ erro: err.message });
+  }
 });
 
-// --- Lado PC: manda largadas, chegadas e tags pro online
+// --- Lado PC: baixar agora (manual, sem apagar nada do PC)
+app.post('/admin/sync/baixar', async (req, res) => {
+  const { senha, evento_id } = req.body;
+  if (senha !== ADMIN_PASSWORD) return res.status(401).json({ erro: 'Senha incorreta.' });
+  if (!MODO_LOCAL) return res.status(400).json({ erro: 'Isso só funciona no servidor do PC.' });
+  try {
+    const r = await baixarEventoDoOnline(evento_id);
+    res.json({ sucesso: true, ...r });
+  } catch (err) {
+    console.error(err);
+    res.status(err.semInternet ? 502 : 500).json({ erro: err.message });
+  }
+});
+
+// --- Lado PC: enviar agora (manual)
 app.post('/admin/sync/enviar', async (req, res) => {
   const { senha, evento_id } = req.body;
   if (senha !== ADMIN_PASSWORD) return res.status(401).json({ erro: 'Senha incorreta.' });
   if (!MODO_LOCAL) return res.status(400).json({ erro: 'Isso só funciona no servidor do PC.' });
-
   try {
-    const r = await pool.query(
-      `SELECT id, hora_largada, hora_chegada, tag_epc, kit_entregue
-       FROM inscricoes WHERE evento_id = $1 AND pagamento_status = 'pago'`,
-      [evento_id]
-    );
-    const resposta = await chamarOnline('/admin/sync/importar-resultados', { senha, evento_id, inscricoes: r.rows });
-    res.json(resposta);
+    res.json(await enviarResultadosProOnline(evento_id));
   } catch (err) {
     res.status(502).json({ erro: err.message });
+  }
+});
+
+// ============================================
+// ENCERRAR / REABRIR INSCRIÇÕES
+// ============================================
+app.post('/admin/eventos/inscricoes-por-codigo', async (req, res) => {
+  const { senha, codigo, abertas } = req.body;
+  if (senha !== ADMIN_PASSWORD) return res.status(401).json({ erro: 'Senha incorreta.' });
+  try {
+    const r = await pool.query(
+      'UPDATE eventos SET inscricoes_abertas = $1 WHERE codigo = $2 RETURNING id',
+      [!!abertas, String(codigo || '').toUpperCase()]
+    );
+    if (!r.rows.length) return res.status(404).json({ erro: 'Evento não encontrado.' });
+    res.json({ sucesso: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ erro: 'Erro ao atualizar inscrições.' });
+  }
+});
+
+app.post('/admin/eventos/:id/inscricoes-abertas', async (req, res) => {
+  const { id } = req.params;
+  const { senha, abertas } = req.body;
+  if (senha !== ADMIN_PASSWORD) return res.status(401).json({ erro: 'Senha incorreta.' });
+
+  try {
+    const ev = await pool.query('SELECT codigo FROM eventos WHERE id = $1', [id]);
+    if (!ev.rows.length) return res.status(404).json({ erro: 'Evento não encontrado.' });
+
+    let aviso = null;
+    if (MODO_LOCAL) {
+      try {
+        await chamarOnline('/admin/eventos/inscricoes-por-codigo', { senha, codigo: ev.rows[0].codigo, abertas: !!abertas });
+        if (!abertas) await baixarEventoDoOnline(Number(id)); // última cópia antes de fechar
+      } catch (e) {
+        if (abertas) return res.status(502).json({ erro: 'Reabrir inscrições precisa de internet.' });
+        aviso = 'Sem internet agora: encerrado no PC. O site será atualizado sozinho quando a internet voltar.';
+      }
+    }
+
+    await pool.query('UPDATE eventos SET inscricoes_abertas = $1 WHERE id = $2', [!!abertas, id]);
+    res.json({ sucesso: true, aviso });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ erro: 'Erro ao atualizar inscrições.' });
   }
 });
 

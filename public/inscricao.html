@@ -206,6 +206,10 @@ async function buscarEvento() {
     const valor = evento.gratuito ? 'Inscrição gratuita'
       : 'R$ ' + Number(evento.valor_inscricao).toFixed(2).replace('.', ',');
     document.getElementById('infoEvento').textContent = `${data} — ${valor}`;
+    if (evento.inscricoes_abertas === false) {
+      erro.textContent = 'As inscrições dessa corrida estão encerradas.';
+      return;
+    }
     await prepararAtleta();
   } catch (e) {
     erro.textContent = e.message;

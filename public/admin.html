@@ -158,6 +158,7 @@
 <body>
   <div class="card">
     <h1>🏁 Admin — PontoCerto <span id="badgeModo" style="display:none; font-size:11px; padding:3px 8px; border-radius:6px; background:#4ade8033; color:#4ade80; vertical-align:middle;">MODO LOCAL (PC)</span></h1>
+    <div id="statusSync" style="display:none; font-size:12px; color:#9a9ba3; margin:-6px 0 14px;"></div>
 
     <div class="tabs">
       <div class="tab active" id="tabCriar" onclick="mudarAba('criar')">➕ Criar evento</div>
@@ -332,7 +333,7 @@
     <!-- ABA: SINCRONIZAR (só aparece no servidor do PC) -->
     <div class="painel" id="painelSync">
       <p style="color:#9a9ba3; font-size:12.5px; line-height:1.6; margin-bottom:16px;">
-        Precisa de internet. <b>Antes da corrida:</b> baixe o evento pro PC. <b>Depois da corrida:</b> envie os resultados pro servidor online.
+        A sincronização é automática a cada 1 minuto quando tem internet: com inscrições abertas o PC copia tudo do site; depois de <b>encerrar as inscrições</b>, o PC funciona sem internet e manda os tempos pro site sozinho quando ela voltar. Os botões abaixo são só pra forçar na hora.
       </p>
 
       <label>Senha</label>
@@ -549,8 +550,9 @@ async function carregarEventos() {
         <button class="btn-excluir-evento" style="border-color:#ff6a3d; color:#ff6a3d; margin-right:6px;" onclick="event.stopPropagation(); editarEvento(${e.id})">✏️</button>
         <button class="btn-excluir-evento" style="border-color:#4ade80; color:#4ade80; margin-right:6px;" title="Copiar link de inscrição" onclick="event.stopPropagation(); copiarLinkInscricao('${e.codigo}', this)">🔗 Link</button>
         <div class="evento-nome">${e.nome}
-          <span class="evento-badge ${e.ativo ? 'badge-ativo' : 'badge-encerrado'}">${e.ativo ? 'ABERTO' : 'ENCERRADO'}</span>
+          <span class="evento-badge ${e.inscricoes_abertas !== false ? 'badge-ativo' : 'badge-encerrado'}">${e.inscricoes_abertas !== false ? 'INSCRIÇÕES ABERTAS' : 'INSCRIÇÕES ENCERRADAS'}</span>
         </div>
+        <button type="button" class="btn-excluir-evento" style="float:none; margin:8px 0 0; border-color:${e.inscricoes_abertas !== false ? '#f87171' : '#4ade80'}; color:${e.inscricoes_abertas !== false ? '#f87171' : '#4ade80'};" onclick="event.stopPropagation(); alternarInscricoes(${e.id}, ${e.inscricoes_abertas === false})">${e.inscricoes_abertas !== false ? '🔒 Encerrar inscrições' : '🔓 Reabrir inscrições'}</button>
         <div class="evento-meta">${e.codigo} · ${new Date(e.data_evento).toLocaleDateString('pt-BR')} · ${e.gratuito ? 'GRÁTIS' : 'R$ ' + Number(e.valor_inscricao).toFixed(2).replace('.', ',')} · ${e.total_pagos} inscrito(s) confirmado(s)</div>
       </div>
     `).join('');
@@ -1285,6 +1287,8 @@ let eventoSelecionadoSync = null;
 fetch('/modo').then(r => r.json()).then(m => {
   if (m.online) enderecoOnline = m.online;
   if (m.local) {
+    atualizarStatusSync();
+    setInterval(atualizarStatusSync, 20000);
     document.getElementById('tabSync').style.display = '';
     document.getElementById('badgeModo').style.display = '';
   }
@@ -1350,7 +1354,7 @@ async function acaoSync(rota, pergunta, sucesso) {
 
 function baixarEvento() {
   acaoSync('/admin/sync/baixar',
-    'Baixar o evento pro PC?\n\nATENÇÃO: tudo que o PC tem desse evento (atletas de teste, tags vinculadas aqui, largadas e chegadas) será APAGADO e trocado pelo que está online.',
+    'Baixar agora as inscrições do site pro PC? Nada do que o PC registrou (tags, largadas, chegadas) é apagado.',
     d => `"${d.evento}" baixado — ${d.inscritos} inscrito(s) pago(s).`);
 }
 
@@ -1380,6 +1384,40 @@ async function copiarLinkInscricao(codigo, botao) {
   const antes = botao.textContent;
   botao.textContent = '✅ Copiado';
   setTimeout(() => botao.textContent = antes, 2000);
+}
+
+async function atualizarStatusSync() {
+  const el = document.getElementById('statusSync');
+  try {
+    const s = await (await fetch('/admin/sync/status')).json();
+    const hora = d => d ? new Date(d).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : '--';
+    el.style.display = '';
+    el.innerHTML = s.online
+      ? `🟢 Conectado ao site · sincronizado às ${hora(s.ultima)}${s.ultimoEnvio ? ` · tempos enviados às ${hora(s.ultimoEnvio)}` : ''}`
+      : `🔴 Sem internet · tudo funcionando no PC${s.ultima ? ` · última sincronização às ${hora(s.ultima)}` : ''}`;
+  } catch (e) {}
+}
+
+async function alternarInscricoes(id, abrir) {
+  const senha = document.getElementById('senhaInscritos').value.trim();
+  if (!senha) { alert('Preenche a senha.'); return; }
+  const pergunta = abrir
+    ? 'Reabrir as inscrições? Os atletas voltam a poder se inscrever pelo site e pelo app.'
+    : 'Encerrar as inscrições?\n\nNinguém mais consegue se inscrever. O PC fica com a lista final e não precisa mais de internet; os resultados vão pro site quando conectar.';
+  if (!confirm(pergunta)) return;
+  try {
+    const resp = await fetch(`/admin/eventos/${id}/inscricoes-abertas`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ senha, abertas: abrir })
+    });
+    const dados = await resp.json();
+    if (!resp.ok) { alert('❌ ' + (dados.erro || 'Não foi possível.')); return; }
+    alert((abrir ? '🔓 Inscrições reabertas.' : '🔒 Inscrições encerradas.') + (dados.aviso ? '\n\n' + dados.aviso : ''));
+    carregarEventos();
+  } catch (e) {
+    alert('❌ Erro de conexão com o servidor.');
+  }
 }
 atualizarBotoesCrono();
 </script>
