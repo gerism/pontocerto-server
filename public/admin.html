@@ -1308,7 +1308,9 @@ async function editarEvento(id) {
     document.getElementById('ofereceCamisaCriar').checked = !!ev.oferece_camisa;
     document.getElementById('gratuitoCriar').checked = !!ev.gratuito;
     document.getElementById('distanciaCriar').value = ev.distancia_km ? Number(ev.distancia_km) : '';
-    document.getElementById('regulamentoCriar').value = ev.regulamento || '';
+    // evento sem regulamento (criado antes dessa função): já traz o modelo pra revisar
+    document.getElementById('regulamentoCriar').value = ev.regulamento || REGULAMENTO_MODELO;
+    if (!ev.regulamento) setTimeout(() => alert('Este evento ainda não tinha regulamento. O modelo foi colocado no campo: revise, troque o que está entre [colchetes] e clique em Salvar alterações.'), 100);
     alternarGratuito();
     document.getElementById('listaCategorias').innerHTML = '';
     ev.categorias.forEach(c => adicionarCategoria(c.nome, c.idade_min, c.idade_max, c.sexo || '', c.id));
