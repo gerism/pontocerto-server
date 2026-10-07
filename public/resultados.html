@@ -87,6 +87,7 @@
   .meu-tempo { font-size: clamp(52px, 18vw, 88px); font-weight: 800; letter-spacing: -0.04em; line-height: 1; margin: 18px 0 6px; }
   .meu-rotulo { font-size: 13px; color: var(--cinza); }
   .posicoes { margin-top: 22px; border-top: 3px solid var(--tinta); }
+  .posicoes:empty { display: none; }
   .posicoes div { display: flex; justify-content: space-between; align-items: baseline; padding: 14px 0; border-bottom: 1px solid var(--linha); font-size: 16px; }
   .posicoes b { font-size: 26px; font-weight: 800; }
   .posicoes small { color: var(--cinza); font-size: 13px; margin-left: 4px; }
@@ -136,7 +137,7 @@
     <ol id="lista"></ol>
     <div class="rodape" id="rodape"></div>
     <section class="meu" id="meu" aria-live="polite">
-      <button type="button" class="voltar" onclick="fecharMeu()">← Todos os resultados</button>
+      <button type="button" class="voltar" id="btnTodos" onclick="fecharMeu()">← Todos os resultados</button>
       <div class="peito" id="meuNumero"></div>
       <div class="meu-nome" id="meuNome"></div>
       <div class="meu-sub" id="meuSub"></div>
@@ -176,6 +177,9 @@ async function abrirRegulamentoResultados() {
 
 let eventoId = null;
 let jaAbriuLink = false;
+// "Meus resultados": mostra só o atleta desta tela
+const PARAMS = new URLSearchParams(location.search);
+const SO_MEU = PARAMS.get('so') === '1' && Number(PARAMS.get('numero')) > 0 ? Number(PARAMS.get('numero')) : 0;
 if (new URLSearchParams(location.search).get('voltar')) document.getElementById('linhaVoltar').style.display = 'flex';
 let dados = [];
 let filtro = 'geral';
@@ -254,6 +258,7 @@ async function carregar() {
     dados = await resp.json();
     montarCategorias();
     desenhar();
+    if (SO_MEU) { await mostrarSoMeu(); document.getElementById('rodape').textContent = `Atualizado às ${new Date().toLocaleTimeString('pt-BR')}`; return; }
     const pedido = meuAberto ?? Number(new URLSearchParams(location.search).get('numero') || 0);
     if (meuAberto) abrirMeu(meuAberto);
     else if (pedido && !jaAbriuLink && dados.find(x => Number(x.numero) === pedido)) { jaAbriuLink = true; abrirMeu(pedido); }
@@ -318,7 +323,32 @@ function desenhar() {
 
 // Resultado de um atleta só (toque no nome)
 let meuAberto = null;
+async function mostrarSoMeu() {
+  document.getElementById('btnTodos').style.display = 'none';
+  if (dados.find(x => Number(x.numero) === SO_MEU)) { abrirMeu(SO_MEU); return; }
+  // ainda sem tempo: mostra o atleta com a situação dele
+  try {
+    const resp = await fetch(`/eventos/${eventoId}/atleta/${SO_MEU}`);
+    const a = await resp.json();
+    if (!resp.ok) throw new Error(a.erro);
+    document.getElementById('meuNumero').innerHTML = `<small>Nº</small>${a.numero}`;
+    document.getElementById('meuNome').textContent = a.nome;
+    document.getElementById('meuSub').textContent = [a.cidade, a.categoria_nome].filter(Boolean).join(' — ');
+    document.getElementById('meuTempo').textContent = a.largou ? 'Correndo...' : '--:--';
+    document.querySelector('.meu-rotulo').textContent = a.largou
+      ? 'você já largou; o tempo aparece aqui quando passar pela chegada'
+      : 'seu tempo aparece aqui depois da corrida';
+    document.getElementById('meuExtras').innerHTML = '';
+    document.getElementById('meuPosicoes').innerHTML = '';
+  } catch (e) {
+    document.getElementById('meuNome').textContent = 'Inscrição não encontrada';
+    document.getElementById('meuTempo').textContent = '';
+  }
+  document.body.classList.add('vendo-meu');
+}
+
 function abrirMeu(numero) {
+  document.querySelector('.meu-rotulo').textContent = 'tempo';
   const d = dados.find(x => Number(x.numero) === Number(numero));
   if (!d) return;
   meuAberto = Number(numero);

@@ -424,7 +424,7 @@ async function meusResultados() {
     return;
   }
   const numero = minhaInscricao.numero_peito || minhaInscricao.id;
-  location.href = `resultados.html?evento=${evento.id}&numero=${numero}&voltar=1`;
+  location.href = `resultados.html?evento=${evento.id}&numero=${numero}&so=1&voltar=1`;
 }
 
 function voltarInicio() {
@@ -668,7 +668,7 @@ async function confirmado(categoria) {
   document.getElementById('textoPronto').textContent =
     `${atleta.nome}, você está inscrito em ${evento.nome}` + (categoria ? `, categoria ${categoria}.` : '.');
   document.getElementById('numeroInscricao').textContent = 'Nº ' + (numero || inscricaoId);
-  document.getElementById('btnMeuResultado').href = `resultados.html?evento=${evento.id}&numero=${numero || ''}&voltar=1`;
+  document.getElementById('btnMeuResultado').href = `resultados.html?evento=${evento.id}&numero=${numero || ''}&so=1&voltar=1`;
   mostrar('passoPronto');
 }
 

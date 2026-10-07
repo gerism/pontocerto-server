@@ -169,6 +169,27 @@ app.get('/eventos/codigo/:codigo', async (req, res) => {
 });
 
 // Texto do regulamento (página de resultados abre sob demanda)
+// Um atleta só, pelo número (tela "Meus resultados"), mesmo antes de chegar
+app.get('/eventos/:id/atleta/:numero', async (req, res) => {
+  try {
+    const r = await pool.query(
+      `SELECT COALESCE(i.numero_peito, i.id) AS numero, a.nome, a.cidade, c.nome AS categoria_nome,
+              (i.hora_largada IS NOT NULL) AS largou, (i.hora_chegada IS NOT NULL) AS chegou
+       FROM inscricoes i
+       JOIN atletas a ON a.id = i.atleta_id
+       LEFT JOIN categorias_evento c ON c.id = i.categoria_id
+       WHERE i.evento_id = $1 AND i.pagamento_status = 'pago'
+         AND COALESCE(i.numero_peito, i.id) = $2`,
+      [req.params.id, Number(req.params.numero) || 0]
+    );
+    if (!r.rows.length) return res.status(404).json({ erro: 'Atleta não encontrado nesta corrida.' });
+    res.json(r.rows[0]);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ erro: 'Erro ao buscar atleta.' });
+  }
+});
+
 app.get('/eventos/:id/regulamento', async (req, res) => {
   try {
     const r = await pool.query('SELECT nome, regulamento FROM eventos WHERE id = $1', [req.params.id]);
