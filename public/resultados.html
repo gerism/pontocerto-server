@@ -69,6 +69,20 @@
   .detalhe { font-size: 12.5px; color: var(--cinza); margin-top: 2px; }
   .tempo { font-size: 18px; font-weight: 700; }
   .vazio { padding: 40px 0; color: var(--cinza); text-align: center; line-height: 1.6; }
+  li { cursor: pointer; }
+  li:active { background: #eceae3; }
+  .meu { display: none; }
+  body.vendo-meu main > *:not(.meu) { display: none; }
+  body.vendo-meu .meu { display: block; }
+  .voltar { background: none; border: 0; font-size: 15px; font-weight: 600; color: var(--tinta); padding: 6px 0 14px; cursor: pointer; }
+  .meu-nome { font-size: 24px; font-weight: 800; line-height: 1.2; }
+  .meu-sub { color: var(--cinza); font-size: 14px; margin-top: 4px; }
+  .meu-tempo { font-size: clamp(52px, 18vw, 88px); font-weight: 800; letter-spacing: -0.04em; line-height: 1; margin: 18px 0 6px; }
+  .meu-rotulo { font-size: 13px; color: var(--cinza); }
+  .posicoes { margin-top: 22px; border-top: 3px solid var(--tinta); }
+  .posicoes div { display: flex; justify-content: space-between; align-items: baseline; padding: 14px 0; border-bottom: 1px solid var(--linha); font-size: 16px; }
+  .posicoes b { font-size: 26px; font-weight: 800; }
+  .posicoes small { color: var(--cinza); font-size: 13px; margin-left: 4px; }
   .rodape { font-size: 12px; color: var(--cinza); text-align: center; padding: 18px 0 30px; }
 </style>
 </head>
@@ -97,11 +111,20 @@
 
     <ol id="lista"></ol>
     <div class="rodape" id="rodape"></div>
+    <section class="meu" id="meu" aria-live="polite">
+      <button type="button" class="voltar" onclick="fecharMeu()">← Todos os resultados</button>
+      <div class="meu-nome" id="meuNome"></div>
+      <div class="meu-sub" id="meuSub"></div>
+      <div class="meu-tempo" id="meuTempo"></div>
+      <div class="meu-rotulo">tempo</div>
+      <div class="posicoes" id="meuPosicoes"></div>
+    </section>
   </main>
 
 <script src="/socket.io/socket.io.js"></script>
 <script>
 let eventoId = null;
+let jaAbriuLink = false;
 let dados = [];
 let filtro = 'geral';
 
@@ -157,6 +180,9 @@ async function carregar() {
     dados = await resp.json();
     montarCategorias();
     desenhar();
+    const pedido = meuAberto ?? Number(new URLSearchParams(location.search).get('numero') || 0);
+    if (meuAberto) abrirMeu(meuAberto);
+    else if (pedido && !jaAbriuLink && dados.find(x => Number(x.numero) === pedido)) { jaAbriuLink = true; abrirMeu(pedido); }
     document.getElementById('rodape').textContent = `Atualizado às ${new Date().toLocaleTimeString('pt-BR')}`;
   } catch (e) {
     document.getElementById('rodape').textContent = 'Sem conexão com o sistema. Tentando de novo...';
@@ -203,7 +229,7 @@ function desenhar() {
     return;
   }
   ol.innerHTML = visiveis.map(d => `
-    <li>
+    <li onclick="abrirMeu(${d.numero})" tabindex="0" onkeydown="if(event.key==='Enter')abrirMeu(${d.numero})" title="Ver resultado de ${esc(d.nome)}">
       <div class="pos">${d.posicao}º</div>
       <div>
         <div class="nome">${esc(d.nome)}</div>
@@ -212,6 +238,31 @@ function desenhar() {
       <div class="tempo">${formatarTempo(d.tempo_total)}</div>
     </li>
   `).join('');
+}
+
+// Resultado de um atleta só (toque no nome)
+let meuAberto = null;
+function abrirMeu(numero) {
+  const d = dados.find(x => Number(x.numero) === Number(numero));
+  if (!d) return;
+  meuAberto = Number(numero);
+  const pos = (lista) => lista.findIndex(x => x === d) + 1;
+  const sexo = dados.filter(x => x.genero === d.genero);
+  const cat = dados.filter(x => x.categoria_id === d.categoria_id);
+  document.getElementById('meuNome').textContent = d.nome;
+  document.getElementById('meuSub').textContent = `Nº ${d.numero}` + (d.categoria_nome ? ` — ${d.categoria_nome}` : '');
+  document.getElementById('meuTempo').textContent = formatarTempo(d.tempo_total);
+  const linha = (rotulo, p, total) => `<div><span>${rotulo}</span><span><b>${p}º</b><small>de ${total}</small></span></div>`;
+  document.getElementById('meuPosicoes').innerHTML =
+    linha('Geral', pos(dados), dados.length) +
+    (d.genero ? linha(d.genero === 'F' ? 'Feminino' : 'Masculino', pos(sexo), sexo.length) : '') +
+    (d.categoria_id ? linha(esc(d.categoria_nome), pos(cat), cat.length) : '');
+  document.body.classList.add('vendo-meu');
+  window.scrollTo(0, 0);
+}
+function fecharMeu() {
+  meuAberto = null;
+  document.body.classList.remove('vendo-meu');
 }
 
 document.querySelectorAll('.filtros button').forEach(b => b.addEventListener('click', () => {

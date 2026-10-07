@@ -57,6 +57,7 @@
   .data3 input { text-align: center; font-size: 20px; padding: 12px 6px; }
   .data3 span { font-size: 22px; padding-top: 12px; color: var(--cinza); }
   .data3 small { display: block; font-size: 12px; color: var(--cinza); margin-top: 3px; }
+  .link-resultados { display: inline-block; margin-top: 10px; padding: 8px 14px; border-radius: 999px; border: 1.5px solid #d9dbe0; color: #fff; text-decoration: none; font-size: 14px; font-weight: 600; }
   [hidden] { display: none !important; }
 </style>
 </head>
@@ -66,6 +67,7 @@
       <div class="marca">PontoCerto · inscrição</div>
       <div class="evento-nome" id="tituloEvento">Inscrição na corrida</div>
       <div class="evento-info" id="infoEvento"></div>
+      <a id="linkResultados" class="link-resultados" hidden>🏆 Ver resultados</a>
     </div>
   </header>
 
@@ -170,6 +172,7 @@
       <p id="textoPronto"></p>
       <div class="numero" id="numeroInscricao"></div>
       <p class="aviso">Guarde esse número. Ele aparece nos resultados.</p>
+      <a class="principal" id="btnMeuResultado" style="display:block; text-decoration:none; margin-top:24px;">🏆 Ver meu resultado</a>
     </section>
   </main>
 
@@ -264,6 +267,9 @@ async function buscarEvento() {
     const valor = evento.gratuito ? 'Inscrição gratuita'
       : 'R$ ' + Number(evento.valor_inscricao).toFixed(2).replace('.', ',');
     document.getElementById('infoEvento').textContent = `${data} — ${valor}`;
+    const lr = document.getElementById('linkResultados');
+    lr.href = `resultados.html?evento=${evento.id}`;
+    lr.hidden = false;
     if (evento.inscricoes_abertas === false) {
       erro.textContent = 'As inscrições dessa corrida estão encerradas.';
       return;
@@ -427,12 +433,16 @@ async function verificarPagamento() {
 
 async function confirmado(categoria) {
   clearInterval(consulta);
-  if (categoria === undefined) {
-    try { categoria = (await api(`/inscricoes/${inscricaoId}/status`)).categoria_nome; } catch (e) {}
-  }
+  let numero = null;
+  try {
+    const st = await api(`/inscricoes/${inscricaoId}/status`);
+    if (categoria === undefined) categoria = st.categoria_nome;
+    numero = st.numero_peito;
+  } catch (e) {}
   document.getElementById('textoPronto').textContent =
     `${atleta.nome}, você está inscrito em ${evento.nome}` + (categoria ? `, categoria ${categoria}.` : '.');
-  document.getElementById('numeroInscricao').textContent = 'Nº ' + inscricaoId;
+  document.getElementById('numeroInscricao').textContent = 'Nº ' + (numero || inscricaoId);
+  document.getElementById('btnMeuResultado').href = `resultados.html?evento=${evento.id}&numero=${numero || ''}`;
   mostrar('passoPronto');
 }
 
