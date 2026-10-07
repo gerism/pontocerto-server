@@ -1157,7 +1157,11 @@ app.post('/atletas/:id/editar-meus-dados', async (req, res) => {
     return res.status(400).json({ erro: 'Preencha todos os campos.' });
   }
   try {
-    if (!(await conferirDono(req.params.id, cpf_atual, nasc_atual))) {
+    // dono: cadastrado neste aparelho (device_id) OU confirmou CPF + nascimento
+    const doAparelho = req.body.device_id && (await pool.query(
+      'SELECT 1 FROM atletas WHERE id = $1 AND device_id = $2', [req.params.id, req.body.device_id]
+    )).rows.length > 0;
+    if (!doAparelho && !(await conferirDono(req.params.id, cpf_atual, nasc_atual))) {
       return res.status(403).json({ erro: 'CPF e data de nascimento não conferem.' });
     }
     const a = await gravarAtleta(req.params.id, d, false); // atleta não troca o próprio CPF

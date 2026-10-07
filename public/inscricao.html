@@ -112,6 +112,8 @@
         <h2>Corrigir meus dados</h2>
         <label for="edNome">Nome completo</label>
         <input id="edNome" autocomplete="name">
+        <label for="edCpf">CPF</label>
+        <input id="edCpf" readonly style="background:#eceae3; color:#6a6e78;">
         <label for="edDia">Data de nascimento</label>
           <div class="data3" role="group" aria-label="Data de nascimento">
             <div><input id="edDia" inputmode="numeric" maxlength="2" placeholder="Dia" aria-label="Dia"><small>dia</small></div>
@@ -378,10 +380,34 @@ document.addEventListener('visibilitychange', () => {
 
 // Corrigir os próprios dados (confirma CPF + nascimento antes)
 let donoConfirmado = null; // { cpf, nasc }
-function abrirMeusDados() {
+async function abrirMeusDados() {
+  // cadastro feito neste aparelho: abre o formulário completo direto
+  try {
+    const meu = await api(`/atletas/meu?device_id=${encodeURIComponent(deviceId())}`);
+    if (meu && meu.id === atleta.id) {
+      donoConfirmado = { device: true };
+      mostrarFormEditar({ ...meu, data_nascimento: String(meu.data_nascimento || '').slice(0, 10) });
+      return;
+    }
+  } catch (e) {}
+  // cadastro feito em outro lugar (app ou outro celular): confirma CPF + nascimento
   esconderBlocos();
   document.getElementById('erroDono').textContent = '';
   document.getElementById('blocoConfirmarDono').hidden = false;
+}
+
+function mostrarFormEditar(d) {
+  document.getElementById('edNome').value = d.nome || '';
+  document.getElementById('edCpf').value = d.cpf || donoConfirmado.cpf || '';
+  preencherData('ed', d.data_nascimento);
+  document.getElementById('edSexo').value = d.sexo || 'M';
+  document.getElementById('edEmail').value = d.email || '';
+  document.getElementById('edTel').value = d.telefone || '';
+  document.getElementById('edCidade').value = d.cidade || '';
+  document.getElementById('erroEditar').textContent = '';
+  esconderBlocos();
+  document.getElementById('blocoEditar').hidden = false;
+  window.scrollTo(0, 0);
 }
 
 function preencherData(pre, iso) {
@@ -403,15 +429,7 @@ async function carregarMeusDados() {
   try {
     const d = await api(`/atletas/${atleta.id}/meus-dados`, { cpf, data_nascimento: nasc });
     donoConfirmado = { cpf, nasc };
-    document.getElementById('edNome').value = d.nome || '';
-    preencherData('ed', d.data_nascimento);
-    document.getElementById('edSexo').value = d.sexo || 'M';
-    document.getElementById('edEmail').value = d.email || '';
-    document.getElementById('edTel').value = d.telefone || '';
-    document.getElementById('edCidade').value = d.cidade || '';
-    document.getElementById('erroEditar').textContent = '';
-    esconderBlocos();
-    document.getElementById('blocoEditar').hidden = false;
+    mostrarFormEditar(d);
   } catch (e) {
     erro.textContent = e.message;
   } finally {
@@ -430,6 +448,7 @@ async function salvarMeusDados() {
   try {
     const r = await api(`/atletas/${atleta.id}/editar-meus-dados`, {
       cpf_atual: donoConfirmado.cpf, nasc_atual: donoConfirmado.nasc,
+      device_id: donoConfirmado.device ? deviceId() : undefined,
       nome: v('edNome'), data_nascimento: nasc, sexo: v('edSexo'),
       email: v('edEmail'), telefone: v('edTel').replace(/\D/g, ''), cidade: v('edCidade')
     });
