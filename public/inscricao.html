@@ -51,6 +51,12 @@
   .confirmado .grande { font-size: 56px; line-height: 1; }
   .confirmado h2 { font-size: 22px; margin: 12px 0 6px; }
   .numero { display: inline-block; margin-top: 10px; font-size: 40px; font-weight: 800; border: 3px solid var(--tinta); border-radius: 12px; padding: 4px 18px; }
+  .data3 { display: flex; align-items: flex-start; gap: 6px; }
+  .data3 > div { flex: 1; min-width: 0; text-align: center; }
+  .data3 > div.ano { flex: 1.6; }
+  .data3 input { text-align: center; font-size: 20px; padding: 12px 6px; }
+  .data3 span { font-size: 22px; padding-top: 12px; color: var(--cinza); }
+  .data3 small { display: block; font-size: 12px; color: var(--cinza); margin-top: 3px; }
   [hidden] { display: none !important; }
 </style>
 </head>
@@ -85,11 +91,17 @@
         <h2>Seus dados</h2>
         <label for="nome">Nome completo</label>
         <input id="nome" autocomplete="name">
-        <div class="linha2">
-          <div><label for="cpf">CPF</label><input id="cpf" inputmode="numeric" placeholder="Só números"></div>
-          <div><label for="nasc">Nascimento</label><input id="nasc" class="data" inputmode="numeric" maxlength="10" placeholder="DD/MM/AAAA"></div>
-        </div>
-        <p class="aviso">Nascimento: digite só os números, as barras aparecem sozinhas. Ex: 15081985 vira 15/08/1985.</p>
+        <label for="cpf">CPF</label>
+        <input id="cpf" inputmode="numeric" placeholder="Só números">
+        <label for="nascDia">Data de nascimento</label>
+          <div class="data3" role="group" aria-label="Data de nascimento">
+            <div><input id="nascDia" inputmode="numeric" maxlength="2" placeholder="Dia" aria-label="Dia"><small>dia</small></div>
+            <span>/</span>
+            <div><input id="nascMes" inputmode="numeric" maxlength="2" placeholder="Mês" aria-label="Mês"><small>mês</small></div>
+            <span>/</span>
+            <div class="ano"><input id="nascAno" inputmode="numeric" maxlength="4" placeholder="Ano" aria-label="Ano"><small>ano (4 números)</small></div>
+          </div>
+        <p class="aviso">Exemplo: nasceu em 15 de agosto de 1985 → 15 / 08 / 1985</p>
         <label for="sexo">Sexo</label>
         <select id="sexo"><option value="">Escolha</option><option value="M">Masculino</option><option value="F">Feminino</option></select>
         <label for="email">E-mail</label>
@@ -105,9 +117,15 @@
         <h2>Já tenho cadastro</h2>
         <label for="cpfEntrar">CPF</label>
         <input id="cpfEntrar" inputmode="numeric" placeholder="Só números">
-        <label for="nascEntrar">Data de nascimento</label>
-        <input id="nascEntrar" class="data" inputmode="numeric" maxlength="10" placeholder="DD/MM/AAAA">
-        <p class="aviso">Digite só os números, as barras aparecem sozinhas. Ex: 15081985 vira 15/08/1985.</p>
+        <label for="nascEntrarDia">Data de nascimento</label>
+          <div class="data3" role="group" aria-label="Data de nascimento">
+            <div><input id="nascEntrarDia" inputmode="numeric" maxlength="2" placeholder="Dia" aria-label="Dia"><small>dia</small></div>
+            <span>/</span>
+            <div><input id="nascEntrarMes" inputmode="numeric" maxlength="2" placeholder="Mês" aria-label="Mês"><small>mês</small></div>
+            <span>/</span>
+            <div class="ano"><input id="nascEntrarAno" inputmode="numeric" maxlength="4" placeholder="Ano" aria-label="Ano"><small>ano (4 números)</small></div>
+          </div>
+        <p class="aviso">Exemplo: nasceu em 15 de agosto de 1985 → 15 / 08 / 1985</p>
         <button class="principal" id="btnEntrar" onclick="entrar()">Entrar</button>
         <button class="link" onclick="mostrarNovo()">Fazer cadastro novo</button>
         <div class="erro" id="erroEntrar"></div>
@@ -178,14 +196,31 @@ function atletaLembrado() {
   try { return JSON.parse(localStorage.getItem('pc_atleta') || 'null'); } catch (e) { return null; }
 }
 
-// Campo de data simples: digita 15081985 e vira 15/08/1985
-document.querySelectorAll('input.data').forEach(campo => {
-  campo.addEventListener('input', () => {
-    const n = campo.value.replace(/\D/g, '').slice(0, 8);
-    campo.value = n.length > 4 ? `${n.slice(0, 2)}/${n.slice(2, 4)}/${n.slice(4)}`
-      : n.length > 2 ? `${n.slice(0, 2)}/${n.slice(2)}` : n;
+// Data em 3 caixas (dia, mês, ano): só números e pula sozinho pra próxima
+['nasc', 'nascEntrar'].forEach(pre => {
+  const dia = document.getElementById(pre + 'Dia');
+  const mes = document.getElementById(pre + 'Mes');
+  const ano = document.getElementById(pre + 'Ano');
+  [[dia, mes, 2], [mes, ano, 2], [ano, null, 4]].forEach(([campo, proximo, tam]) => {
+    campo.addEventListener('input', () => {
+      campo.value = campo.value.replace(/\D/g, '').slice(0, tam);
+      if (proximo && campo.value.length === tam) proximo.focus();
+    });
+  });
+  // apagando com a caixa vazia, volta pra anterior
+  [[mes, dia], [ano, mes]].forEach(([campo, anterior]) => {
+    campo.addEventListener('keydown', e => {
+      if (e.key === 'Backspace' && !campo.value) anterior.focus();
+    });
   });
 });
+
+function lerData(pre) {
+  const g = id => document.getElementById(pre + id).value.trim();
+  const d = g('Dia'), m = g('Mes'), a = g('Ano');
+  if (!d && !m && !a) return '';
+  return `${d.padStart(2, '0')}/${m.padStart(2, '0')}/${a}`;
+}
 
 // "15/08/1985" -> "1985-08-15" (ou null se não for uma data válida)
 function dataParaServidor(texto) {
@@ -297,15 +332,15 @@ async function cadastrar() {
     device_id: deviceId(),
     nome: v('nome'),
     cpf: v('cpf').replace(/\D/g, ''),
-    data_nascimento: dataParaServidor(v('nasc')),
+    data_nascimento: dataParaServidor(lerData('nasc')),
     sexo: v('sexo'),
     email: v('email'),
     telefone: v('tel').replace(/\D/g, '')
   };
-  if (!corpo.nome || !v('nasc') || !corpo.sexo || !corpo.email || !corpo.telefone) {
+  if (!corpo.nome || !lerData('nasc') || !corpo.sexo || !corpo.email || !corpo.telefone) {
     erro.textContent = 'Preencha todos os campos.'; return;
   }
-  if (!corpo.data_nascimento) { erro.textContent = 'Data de nascimento inválida. Use dia/mês/ano, ex: 15/08/1985.'; return; }
+  if (!corpo.data_nascimento) { erro.textContent = 'Data de nascimento inválida. Confira dia, mês e ano (ano com 4 números, ex: 1985).'; return; }
   if (corpo.cpf.length !== 11) { erro.textContent = 'O CPF precisa ter 11 números.'; return; }
 
   const btn = document.getElementById('btnCadastrar');
@@ -326,9 +361,9 @@ async function entrar() {
   const erro = document.getElementById('erroEntrar');
   erro.textContent = '';
   const cpf = document.getElementById('cpfEntrar').value.replace(/\D/g, '');
-  const data_nascimento = dataParaServidor(document.getElementById('nascEntrar').value);
+  const data_nascimento = dataParaServidor(lerData('nascEntrar'));
   if (cpf.length !== 11) { erro.textContent = 'Informe o CPF com 11 números.'; return; }
-  if (!data_nascimento) { erro.textContent = 'Data de nascimento inválida. Use dia/mês/ano, ex: 15/08/1985.'; return; }
+  if (!data_nascimento) { erro.textContent = 'Data de nascimento inválida. Confira dia, mês e ano (ano com 4 números, ex: 1985).'; return; }
   const btn = document.getElementById('btnEntrar');
   btn.disabled = true;
   try {
