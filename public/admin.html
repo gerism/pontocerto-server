@@ -205,7 +205,11 @@
       </label>
 
       <label>Regulamento</label>
-      <textarea id="regulamentoCriar" rows="8" placeholder="Cole aqui o regulamento da prova (percurso, horários, kit, premiação, regras...)" style="width:100%; padding:12px; font-size:13px; line-height:1.5; border-radius:10px; background:#0f1115; color:#f3ede4; border:1px solid #2c3038; resize:vertical; font-family:inherit;"></textarea>
+      <textarea id="regulamentoCriar" rows="14" placeholder="Cole aqui o regulamento da prova (percurso, horários, kit, premiação, regras...)" style="width:100%; padding:12px; font-size:13px; line-height:1.5; border-radius:10px; background:#0f1115; color:#f3ede4; border:1px solid #2c3038; resize:vertical; font-family:inherit;"></textarea>
+      <div style="display:flex; gap:8px; margin-top:6px;">
+        <button type="button" class="acao" style="margin:0; width:auto; padding:8px 14px; font-size:12.5px; background:#1a1d24; color:#f87171; border:1px solid #f87171;" onclick="apagarRegulamento()">🗑️ Apagar texto</button>
+        <button type="button" class="acao" style="margin:0; width:auto; padding:8px 14px; font-size:12.5px; background:#1a1d24; color:#f3ede4; border:1px solid #2c3038;" onclick="usarModeloRegulamento()">📄 Usar modelo</button>
+      </div>
       <div style="font-size:11.5px; color:#9a9ba3; margin-top:4px;">Se preenchido, o atleta precisa marcar "Li e aceito o regulamento" pra se inscrever pelo site.</div>
 
       <label>Categorias por idade *</label>
@@ -540,7 +544,7 @@ async function criarEvento() {
       document.getElementById('dataCriar').value = '';
       document.getElementById('valorCriar').value = '';
       document.getElementById('distanciaCriar').value = '';
-      document.getElementById('regulamentoCriar').value = '';
+      document.getElementById('regulamentoCriar').value = REGULAMENTO_MODELO;
       document.getElementById('ofereceCamisaCriar').checked = false;
       document.getElementById('gratuitoCriar').checked = false;
       alternarGratuito();
@@ -1321,7 +1325,8 @@ async function editarEvento(id) {
 
 function cancelarEdicao() {
   eventoEmEdicao = null;
-  ['nomeCriar', 'codigoCriar', 'dataCriar', 'valorCriar', 'distanciaCriar', 'regulamentoCriar'].forEach(i => document.getElementById(i).value = '');
+  ['nomeCriar', 'codigoCriar', 'dataCriar', 'valorCriar', 'distanciaCriar'].forEach(i => document.getElementById(i).value = '');
+  document.getElementById('regulamentoCriar').value = REGULAMENTO_MODELO;
   document.getElementById('ofereceCamisaCriar').checked = false;
   document.getElementById('gratuitoCriar').checked = false;
   alternarGratuito();
@@ -1559,6 +1564,24 @@ async function salvarAtleta() {
     erro.textContent = '❌ Erro de conexão com o servidor.';
   }
 }
+
+// Modelo de regulamento que vem preenchido em todo evento novo
+const REGULAMENTO_MODELO = "REGULAMENTO — [NOME DA CORRIDA]\n\n1. A PROVA\n1.1. A [NOME DA CORRIDA] será realizada no dia [DATA], com largada às [HORÁRIO], em [LOCAL DA LARGADA], na cidade de [CIDADE].\n1.2. A prova terá percurso de [DISTÂNCIA] km, em ruas e estradas sinalizadas pela organização.\n1.3. O tempo máximo para conclusão do percurso é de [TEMPO LIMITE]. Após esse tempo, o atleta deverá deixar a pista e seguir pela calçada ou pelo veículo de apoio.\n\n2. INSCRIÇÕES\n2.1. As inscrições são feitas exclusivamente pelo app PontoCerto ou pelo site de inscrição, informando o código da prova.\n2.2. A inscrição só é confirmada após o pagamento (Pix) ou, em eventos gratuitos, após a confirmação na tela. Ao final, o atleta recebe seu número de inscrição.\n2.3. As inscrições podem ser encerradas antes da data limite caso o número máximo de vagas seja atingido.\n2.4. A inscrição é pessoal e intransferível. Não há devolução do valor pago em caso de desistência.\n2.5. Ao se inscrever, o atleta declara estar em boas condições de saúde e apto a participar da prova.\n\n3. CATEGORIAS\n3.1. Os atletas são divididos em categorias por faixa de idade e sexo, de forma automática, de acordo com a data de nascimento informada no cadastro.\n3.2. É responsabilidade do atleta informar dados corretos. Dados errados podem levar à desclassificação. Os dados podem ser corrigidos pelo próprio atleta na página de inscrição até o encerramento das inscrições.\n\n4. KIT E NÚMERO DE PEITO\n4.1. A retirada do kit será no dia [DATA DA RETIRADA], das [HORÁRIO], em [LOCAL DA RETIRADA], mediante documento com foto.\n4.2. O kit contém número de peito com chip de cronometragem[, camisa (quando escolhida na inscrição)] e [OUTROS ITENS].\n4.3. O número de peito deve ser usado na frente do corpo, visível, sem dobrar ou cobrir o chip.\n\n5. CRONOMETRAGEM\n5.1. A cronometragem é feita por chip RFID (sistema PontoCerto). O tempo de cada atleta começa a contar quando ele passa pela antena da largada e termina quando passa pela antena da chegada (tempo líquido).\n5.2. O atleta que não passar pela largada ou pela chegada com o chip não terá tempo registrado.\n5.3. O chip é de uso exclusivo do atleta inscrito. O uso do número ou chip por outra pessoa leva à desclassificação dos dois.\n\n6. RESULTADOS E PREMIAÇÃO\n6.1. Os resultados podem ser acompanhados ao vivo pelo site de resultados e pelo app PontoCerto, com classificação geral, por sexo e por categoria.\n6.2. Serão premiados [PREMIAÇÃO: ex. os 3 primeiros colocados no geral masculino e feminino e os 3 primeiros de cada categoria].\n6.3. Reclamações sobre o resultado devem ser feitas à organização em até [PRAZO] após a divulgação.\n\n7. SEGURANÇA\n7.1. É proibido cortar caminho, receber ajuda de veículos ou correr acompanhado de pessoas não inscritas.\n7.2. A organização disponibilizará postos de hidratação e equipe de apoio ao longo do percurso.\n7.3. A prova poderá ser adiada, ter o percurso alterado ou ser cancelada por motivo de segurança ou força maior.\n\n8. USO DE IMAGEM E DADOS\n8.1. Ao se inscrever, o atleta autoriza o uso de sua imagem em fotos e vídeos da prova, para divulgação, sem qualquer pagamento.\n8.2. Nome, cidade, categoria e tempo do atleta serão exibidos publicamente nos resultados. Os demais dados (CPF, telefone, e-mail) são usados apenas pela organização.\n\n9. DISPOSIÇÕES GERAIS\n9.1. Ao marcar \"Li e aceito o regulamento\", o atleta declara conhecer e concordar com todas as regras acima.\n9.2. Casos não previstos neste regulamento serão decididos pela organização.\n9.3. Contato da organização: [TELEFONE / WHATSAPP / E-MAIL].";
+
+function apagarRegulamento() {
+  const campo = document.getElementById('regulamentoCriar');
+  if (campo.value.trim() && !confirm('Apagar todo o texto do regulamento?')) return;
+  campo.value = '';
+  campo.focus();
+}
+
+function usarModeloRegulamento() {
+  const campo = document.getElementById('regulamentoCriar');
+  if (campo.value.trim() && !confirm('Trocar o texto atual pelo modelo?')) return;
+  campo.value = REGULAMENTO_MODELO;
+}
+
+document.getElementById('regulamentoCriar').value = REGULAMENTO_MODELO;
 atualizarBotoesCrono();
 </script>
 </body>
