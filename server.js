@@ -23,22 +23,28 @@ const pool = new Pool({
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
 
 // Ajustes de banco que rodam sozinhos ao ligar (no Railway e no PC).
-pool.query(`ALTER TABLE eventos
-             ADD COLUMN IF NOT EXISTS gratuito BOOLEAN NOT NULL DEFAULT false,
-             ADD COLUMN IF NOT EXISTS inscricoes_abertas BOOLEAN NOT NULL DEFAULT true,
-             ADD COLUMN IF NOT EXISTS distancia_km NUMERIC(6,2)`)
-  .then(() => pool.query(`ALTER TABLE atletas ADD COLUMN IF NOT EXISTS cidade TEXT`))
-  .then(() => pool.query(`ALTER TABLE inscricoes ADD COLUMN IF NOT EXISTS numero_peito INT`))
-  .then(() => pool.query(`
-    UPDATE inscricoes i SET numero_peito = n.num
-    FROM (
-      SELECT id, ROW_NUMBER() OVER (PARTITION BY evento_id ORDER BY criado_em, id)
-             + COALESCE((SELECT MAX(numero_peito) FROM inscricoes x WHERE x.evento_id = i2.evento_id), 0) AS num
-      FROM inscricoes i2
-      WHERE pagamento_status = 'pago' AND numero_peito IS NULL
-    ) n
-    WHERE i.id = n.id`))
-  .catch(err => console.error('Erro ao ajustar tabelas:', err.message));
+// Cada ajuste roda separado: se um falhar, os outros continuam.
+const ajustesBanco = (async () => {
+  const comandos = [
+    `ALTER TABLE eventos ADD COLUMN IF NOT EXISTS gratuito BOOLEAN NOT NULL DEFAULT false`,
+    `ALTER TABLE eventos ADD COLUMN IF NOT EXISTS inscricoes_abertas BOOLEAN NOT NULL DEFAULT true`,
+    `ALTER TABLE eventos ADD COLUMN IF NOT EXISTS distancia_km NUMERIC(6,2)`,
+    `ALTER TABLE atletas ADD COLUMN IF NOT EXISTS cidade TEXT`,
+    `ALTER TABLE inscricoes ADD COLUMN IF NOT EXISTS numero_peito INT`,
+    `UPDATE inscricoes i SET numero_peito = n.num
+     FROM (
+       SELECT id, ROW_NUMBER() OVER (PARTITION BY evento_id ORDER BY criado_em, id)
+              + COALESCE((SELECT MAX(numero_peito) FROM inscricoes x WHERE x.evento_id = i2.evento_id), 0) AS num
+       FROM inscricoes i2
+       WHERE pagamento_status = 'pago' AND numero_peito IS NULL
+     ) n
+     WHERE i.id = n.id`
+  ];
+  for (const sql of comandos) {
+    try { await pool.query(sql); }
+    catch (err) { console.error('Erro ao ajustar banco:', err.message); }
+  }
+})();
 const MODO_LOCAL = !!process.env.MODO_LOCAL;
 const SERVIDOR_ONLINE = (process.env.SERVIDOR_ONLINE || '').replace(/\/$/, '');
 
@@ -1415,9 +1421,23 @@ async function colunasGeradas(client, tabela) {
 
 // Insere (ou atualiza, se o id já existir) mantendo o mesmo id do online.
 // "manterLocal": colunas em que o valor do PC vence quando ele já existe.
+const colunasExistentesCache = {};
+async function colunasExistentes(client, tabela) {
+  if (!colunasExistentesCache[tabela]) {
+    const r = await client.query(
+      `SELECT column_name FROM information_schema.columns WHERE table_name = $1`, [tabela]
+    );
+    colunasExistentesCache[tabela] = r.rows.map(x => x.column_name);
+  }
+  return colunasExistentesCache[tabela];
+}
+
 async function upsert(client, tabela, linha, manterLocal = []) {
   const pular = await colunasGeradas(client, tabela);
-  const cols = Object.keys(linha).filter(c => !pular.includes(c));
+  // só as colunas que existem no banco do PC (se o site tiver uma coluna
+  // nova que o PC ainda não tem, ela é ignorada em vez de dar erro)
+  const existem = await colunasExistentes(client, tabela);
+  const cols = Object.keys(linha).filter(c => !pular.includes(c) && existem.includes(c));
   const valores = cols.map(c => linha[c]);
   const marcas = cols.map((_, i) => `$${i + 1}`);
   const sets = cols.filter(c => c !== 'id').map(c =>
@@ -1578,7 +1598,7 @@ async function cicloSync() {
 }
 
 if (MODO_LOCAL) {
-  setTimeout(cicloSync, 5000);
+  ajustesBanco.then(() => setTimeout(cicloSync, 3000));
   setInterval(cicloSync, 60000);
 }
 
