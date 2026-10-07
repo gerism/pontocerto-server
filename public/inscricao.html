@@ -110,6 +110,8 @@
         <input id="email" type="email" autocomplete="email">
         <label for="tel">Celular (WhatsApp)</label>
         <input id="tel" type="tel" inputmode="tel" autocomplete="tel" placeholder="(37) 99999-9999">
+        <label for="cidade">Cidade onde mora</label>
+        <input id="cidade" autocomplete="address-level2" placeholder="Ex: Cláudio">
         <button class="principal" id="btnCadastrar" onclick="cadastrar()">Continuar</button>
         <button class="link" onclick="mostrarEntrar()">Já tenho cadastro (no app ou aqui)</button>
         <div class="erro" id="erroNovo"></div>
@@ -138,6 +140,10 @@
     <section id="passoConfirmar" hidden>
       <h2>Confirmar inscrição</h2>
       <div class="quem"><b id="nomeConfirmar"></b></div>
+      <div id="blocoCidade" hidden>
+        <label for="cidadeConfirmar">Cidade onde mora</label>
+        <input id="cidadeConfirmar" autocomplete="address-level2" placeholder="Ex: Cláudio">
+      </div>
 
       <div id="blocoCamisa" hidden>
         <label class="check"><input type="checkbox" id="querCamisa" onchange="document.getElementById('opcoesCamisa').hidden = !this.checked"> Quero a camisa do kit</label>
@@ -192,7 +198,7 @@ function deviceId() {
   return d;
 }
 function lembrarAtleta(a) {
-  atleta = { id: a.id, nome: a.nome };
+  atleta = { id: a.id, nome: a.nome, cidade: a.cidade || null };
   try { localStorage.setItem('pc_atleta', JSON.stringify(atleta)); } catch (e) {}
 }
 function atletaLembrado() {
@@ -289,7 +295,7 @@ async function prepararAtleta() {
     // confere no servidor se o cadastro ainda existe (pode ter sido excluído)
     try {
       const r = await api(`/atletas/${lembrado.id}/existe`);
-      if (r.existe) { lembrarAtleta({ id: lembrado.id, nome: r.nome }); return mostrarConhecido(); }
+      if (r.existe) { lembrarAtleta({ id: lembrado.id, nome: r.nome, cidade: r.cidade }); return mostrarConhecido(); }
       esquecerAtleta();
     } catch (e) {
       atleta = lembrado; return mostrarConhecido();
@@ -341,9 +347,10 @@ async function cadastrar() {
     data_nascimento: dataParaServidor(lerData('nasc')),
     sexo: v('sexo'),
     email: v('email'),
-    telefone: v('tel').replace(/\D/g, '')
+    telefone: v('tel').replace(/\D/g, ''),
+    cidade: v('cidade')
   };
-  if (!corpo.nome || !lerData('nasc') || !corpo.sexo || !corpo.email || !corpo.telefone) {
+  if (!corpo.nome || !lerData('nasc') || !corpo.sexo || !corpo.email || !corpo.telefone || !corpo.cidade) {
     erro.textContent = 'Preencha todos os campos.'; return;
   }
   if (!corpo.data_nascimento) { erro.textContent = 'Data de nascimento inválida. Confira dia, mês e ano (ano com 4 números, ex: 1985).'; return; }
@@ -383,7 +390,9 @@ async function entrar() {
 }
 
 function irParaConfirmar() {
-  document.getElementById('nomeConfirmar').textContent = atleta.nome;
+  document.getElementById('nomeConfirmar').textContent = atleta.nome + (atleta.cidade ? ` — ${atleta.cidade}` : '');
+  // cadastro antigo (ou feito no app) sem cidade: pede aqui
+  document.getElementById('blocoCidade').hidden = !!atleta.cidade;
   document.getElementById('blocoCamisa').hidden = !evento.oferece_camisa;
   document.getElementById('btnInscrever').textContent = evento.gratuito ? 'Confirmar inscrição' : 'Gerar Pix';
   mostrar('passoConfirmar');
@@ -393,16 +402,20 @@ async function inscrever() {
   const erro = document.getElementById('erroInscrever');
   erro.textContent = '';
   const querCamisa = evento.oferece_camisa && document.getElementById('querCamisa').checked;
+  const cidade = atleta.cidade || document.getElementById('cidadeConfirmar').value.trim();
+  if (!cidade) { erro.textContent = 'Informe a cidade onde você mora.'; return; }
   const btn = document.getElementById('btnInscrever');
   btn.disabled = true;
   try {
     const r = await api(`/eventos/${evento.id}/inscrever`, {
       atleta_id: atleta.id,
+      cidade,
       quer_camisa: querCamisa,
       camisa_tipo: querCamisa ? document.getElementById('camisaTipo').value : null,
       camisa_tamanho: querCamisa ? document.getElementById('camisaTamanho').value : null
     });
     inscricaoId = r.inscricao_id;
+    if (!atleta.cidade) lembrarAtleta({ ...atleta, cidade });
     if (r.gratuito) return confirmado();
     document.getElementById('qrImg').src = 'data:image/png;base64,' + r.qr_code_base64;
     document.getElementById('qrTexto').value = r.qr_code;

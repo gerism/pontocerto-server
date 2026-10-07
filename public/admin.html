@@ -644,11 +644,12 @@ async function carregarInscritos() {
 
     resultado.innerHTML = `
       <table>
-        <tr><th>Nº</th><th>Nome</th><th>Idade</th><th>Categoria</th><th>Sexo</th><th>Camisa</th><th>Tag</th><th>Pronto</th></tr>
+        <tr><th>Nº</th><th>Nome</th><th>Cidade</th><th>Idade</th><th>Categoria</th><th>Sexo</th><th>Camisa</th><th>Tag</th><th>Pronto</th></tr>
         ${inscritos.map(i => `
           <tr id="linha-${i.inscricao_id}" class="${i.kit_entregue ? 'linha-pronta' : ''}">
             <td>${i.numero_peito ?? '-'}</td>
             <td>${i.nome}</td>
+            <td>${i.cidade || '-'}</td>
             <td>${i.idade}</td>
             <td>${i.categoria_nome || '⚠️ sem categoria'}</td>
             <td>${i.sexo || '-'}</td>
@@ -767,7 +768,7 @@ function blocoRanking(titulo, lista, destaque) {
       <h2 style="font-size:13.5px; margin:0 0 8px; color:${destaque ? '#ff6a3d' : '#e8a33d'};">${titulo}</h2>
       ${lista.map((r, i) => `
         <div style="display:flex; justify-content:space-between; gap:8px; padding:6px 2px; border-bottom:1px solid #262a31; font-size:12.5px;">
-          <span><b style="color:${i < 3 ? '#e8a33d' : '#f3ede4'};">${i + 1}º</b> ${r.nome}</span>
+          <span><b style="color:${i < 3 ? '#e8a33d' : '#f3ede4'};">${i + 1}º</b> ${r.nome}${r.cidade ? ` <span style="color:#9a9ba3; font-size:11.5px;">· ${r.cidade}</span>` : ''}</span>
           <span style="color:#9a9ba3; white-space:nowrap;">${formatarTempoAdmin(r.tempo_total)}</span>
         </div>
       `).join('')}
@@ -826,12 +827,13 @@ function imprimirResultados() {
     <section>
       <h2>${esc(titulo)}</h2>
       <table>
-        <thead><tr><th class="c">Pos.</th><th class="c">Nº</th><th>Nome</th><th class="c">Idade</th><th>Categoria</th><th class="d">Tempo</th>${km ? '<th class="d">km/h</th>' : ''}</tr></thead>
+        <thead><tr><th class="c">Pos.</th><th class="c">Nº</th><th>Nome</th><th>Cidade</th><th class="c">Idade</th><th>Categoria</th><th class="d">Tempo</th>${km ? '<th class="d">km/h</th>' : ''}</tr></thead>
         <tbody>
           ${lista.map((r, i) => `<tr>
             <td class="c">${i + 1}º</td>
             <td class="c">${r.numero ?? ''}</td>
             <td>${esc(r.nome)}</td>
+            <td>${esc(r.cidade || '')}</td>
             <td class="c">${r.idade ?? ''}</td>
             <td>${esc(r.categoria_nome || 'Sem categoria')}</td>
             <td class="d">${formatarTempoAdmin(r.tempo_total)}</td>

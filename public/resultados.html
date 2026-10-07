@@ -114,7 +114,7 @@
       <button type="button" data-f="F" aria-pressed="false">Feminino</button>
       <select id="filtroCategoria" aria-label="Categoria"><option value="">Categoria</option></select>
     </div>
-    <input class="busca" id="busca" type="search" placeholder="Buscar por nome ou número" aria-label="Buscar por nome ou número">
+    <input class="busca" id="busca" type="search" placeholder="Buscar por nome, número ou cidade" aria-label="Buscar por nome, número ou cidade">
 
     <ol id="lista"></ol>
     <div class="rodape" id="rodape"></div>
@@ -246,7 +246,7 @@ function desenhar() {
 
   const comPosicao = lista.map((d, i) => ({ ...d, posicao: i + 1 }));
   const visiveis = busca
-    ? comPosicao.filter(d => d.nome.toLowerCase().includes(busca) || String(d.numero) === busca)
+    ? comPosicao.filter(d => d.nome.toLowerCase().includes(busca) || String(d.numero) === busca || (d.cidade || '').toLowerCase().includes(busca))
     : comPosicao;
 
   const ol = document.getElementById('lista');
@@ -263,7 +263,7 @@ function desenhar() {
       <div class="pos">${d.posicao}º</div>
       <div>
         <div class="nome">${esc(d.nome)}</div>
-        <div class="detalhe">Nº ${d.numero}${d.categoria_nome ? ' — ' + esc(d.categoria_nome) : ''}</div>
+        <div class="detalhe">Nº ${d.numero}${d.categoria_nome ? ' — ' + esc(d.categoria_nome) : ''}${d.cidade ? ' — ' + esc(d.cidade) : ''}</div>
       </div>
       <div class="tempo">${formatarTempo(d.tempo_total)}${velocidade(d.tempo_total) ? `<div class="vel">${velocidade(d.tempo_total)}</div>` : ''}</div>
     </li>
@@ -286,7 +286,7 @@ function abrirMeu(numero) {
     <div><b>${velocidade(d.tempo_total)}</b><span>velocidade média</span></div>
     <div><b>${ritmo(d.tempo_total)}</b><span>ritmo (pace)</span></div>
     <div><b>${String(km).replace('.', ',')} km</b><span>distância</span></div>` : '';
-  document.getElementById('meuSub').textContent = d.categoria_nome || '';
+  document.getElementById('meuSub').textContent = [d.cidade, d.categoria_nome].filter(Boolean).join(' — ');
   document.getElementById('meuTempo').textContent = formatarTempo(d.tempo_total);
   const linha = (rotulo, p, total) => `<div><span>${rotulo}</span><span><b>${p}º</b><small>de ${total}</small></span></div>`;
   document.getElementById('meuPosicoes').innerHTML =

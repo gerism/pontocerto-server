@@ -27,6 +27,7 @@ pool.query(`ALTER TABLE eventos
              ADD COLUMN IF NOT EXISTS gratuito BOOLEAN NOT NULL DEFAULT false,
              ADD COLUMN IF NOT EXISTS inscricoes_abertas BOOLEAN NOT NULL DEFAULT true,
              ADD COLUMN IF NOT EXISTS distancia_km NUMERIC(6,2)`)
+  .then(() => pool.query(`ALTER TABLE atletas ADD COLUMN IF NOT EXISTS cidade TEXT`))
   .then(() => pool.query(`ALTER TABLE inscricoes ADD COLUMN IF NOT EXISTS numero_peito INT`))
   .then(() => pool.query(`
     UPDATE inscricoes i SET numero_peito = n.num
@@ -50,6 +51,7 @@ app.get('/modo', (req, res) => res.json({ local: MODO_LOCAL, online: SERVIDOR_ON
 
 app.post('/atletas', async (req, res) => {
   const { device_id, nome, cpf, email, data_nascimento, sexo, telefone } = req.body;
+  const cidade = String(req.body.cidade || '').trim() || null;
 
   if (!device_id || !nome || !cpf || !email || !data_nascimento || !telefone) {
     return res.status(400).json({ erro: 'Campos obrigatórios faltando' });
@@ -57,9 +59,9 @@ app.post('/atletas', async (req, res) => {
 
   try {
     const result = await pool.query(
-      `INSERT INTO atletas (device_id, nome, cpf, email, data_nascimento, sexo, telefone)
-       VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
-      [device_id, nome, cpf, email, data_nascimento, sexo || null, telefone]
+      `INSERT INTO atletas (device_id, nome, cpf, email, data_nascimento, sexo, telefone, cidade)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
+      [device_id, nome, cpf, email, data_nascimento, sexo || null, telefone, cidade]
     );
     res.json(result.rows[0]);
   } catch (err) {
@@ -74,6 +76,7 @@ app.post('/atletas', async (req, res) => {
 app.put('/atletas/:id', async (req, res) => {
   const { id } = req.params;
   const { device_id, nome, email, data_nascimento, sexo, telefone } = req.body;
+  const cidade = String(req.body.cidade || '').trim() || null;
 
   if (!device_id) return res.status(400).json({ erro: 'device_id obrigatório' });
 
@@ -85,10 +88,11 @@ app.put('/atletas/:id', async (req, res) => {
         data_nascimento = COALESCE($3, data_nascimento),
         sexo = COALESCE($4, sexo),
         telefone = COALESCE($5, telefone),
+        cidade = COALESCE($8, cidade),
         atualizado_em = NOW()
        WHERE id = $6 AND device_id = $7
        RETURNING *`,
-      [nome, email, data_nascimento, sexo, telefone, id, device_id]
+      [nome, email, data_nascimento, sexo, telefone, id, device_id, cidade]
     );
     if (result.rows.length === 0) {
       return res.status(403).json({ erro: 'Não autorizado a editar esse cadastro' });
@@ -106,7 +110,7 @@ app.get('/atletas/meu', async (req, res) => {
 
   try {
     const result = await pool.query(
-      `SELECT id, device_id, nome, cpf, email, data_nascimento::text AS data_nascimento, sexo, telefone, criado_em, atualizado_em
+      `SELECT id, device_id, nome, cpf, email, data_nascimento::text AS data_nascimento, sexo, telefone, cidade, criado_em, atualizado_em
        FROM atletas WHERE device_id = $1`,
       [device_id]
     );
@@ -181,6 +185,7 @@ app.get('/eventos/:id/resultados', async (req, res) => {
          COALESCE(i.numero_peito, i.id) AS numero,
          a.nome,
          a.sexo AS genero,
+         a.cidade,
          DATE_PART('year', AGE(a.data_nascimento))::int AS idade,
          i.tempo_total::text AS tempo_total,
          i.categoria_id,
@@ -235,6 +240,9 @@ app.post('/eventos/:eventoId/inscrever', async (req, res) => {
       return res.status(404).json({ erro: 'Atleta não encontrado' });
     }
     const payer_email = atletaResult.rows[0].email;
+    if (String(req.body.cidade || '').trim()) {
+      await pool.query('UPDATE atletas SET cidade = $1 WHERE id = $2', [String(req.body.cidade).trim(), atleta_id]);
+    }
 
     const inscricaoExistente = await pool.query(
       'SELECT * FROM inscricoes WHERE atleta_id = $1 AND evento_id = $2',
@@ -378,8 +386,8 @@ app.get('/inscricoes/:id/status', async (req, res) => {
 // A página web confere se o cadastro guardado no navegador ainda existe
 app.get('/atletas/:id/existe', async (req, res) => {
   try {
-    const r = await pool.query('SELECT id, nome FROM atletas WHERE id = $1', [req.params.id]);
-    res.json(r.rows.length ? { existe: true, nome: r.rows[0].nome } : { existe: false });
+    const r = await pool.query('SELECT id, nome, cidade FROM atletas WHERE id = $1', [req.params.id]);
+    res.json(r.rows.length ? { existe: true, nome: r.rows[0].nome, cidade: r.rows[0].cidade } : { existe: false });
   } catch (err) {
     res.status(500).json({ erro: 'Erro ao conferir cadastro.' });
   }
@@ -391,7 +399,7 @@ app.post('/atletas/entrar', async (req, res) => {
   if (!cpf || !data_nascimento) return res.status(400).json({ erro: 'Informe CPF e data de nascimento.' });
   try {
     const r = await pool.query(
-      `SELECT id, nome FROM atletas
+      `SELECT id, nome, cidade FROM atletas
        WHERE regexp_replace(cpf, '\\D', '', 'g') = $1 AND data_nascimento = $2::date`,
       [cpf, data_nascimento]
     );
@@ -782,7 +790,7 @@ app.post('/admin/eventos/:id/inscritos', async (req, res) => {
   try {
     const result = await pool.query(
       `SELECT
-         a.nome, a.cpf, a.telefone, a.sexo,
+         a.nome, a.cpf, a.telefone, a.sexo, a.cidade,
          DATE_PART('year', AGE(a.data_nascimento))::int AS idade,
          c.nome AS categoria_nome,
          i.id AS inscricao_id, i.numero_peito, i.tag_epc, i.hora_largada, i.hora_chegada, i.tempo_total,
@@ -812,7 +820,7 @@ app.post('/admin/eventos/:id/resultados', async (req, res) => {
   try {
     const result = await pool.query(
       `SELECT
-         COALESCE(i.numero_peito, i.id) AS numero, a.nome, a.sexo,
+         COALESCE(i.numero_peito, i.id) AS numero, a.nome, a.sexo, a.cidade,
          DATE_PART('year', AGE(a.data_nascimento))::int AS idade,
          c.nome AS categoria_nome,
          i.categoria_id,
