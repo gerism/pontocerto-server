@@ -90,6 +90,16 @@
   .posicoes div { display: flex; justify-content: space-between; align-items: baseline; padding: 14px 0; border-bottom: 1px solid var(--linha); font-size: 16px; }
   .posicoes b { font-size: 26px; font-weight: 800; }
   .posicoes small { color: var(--cinza); font-size: 13px; margin-left: 4px; }
+  .regbox { position: fixed; inset: 0; background: rgba(0,0,0,.55); z-index: 20; display: flex; align-items: flex-end; justify-content: center; }
+  .regbox[hidden] { display: none !important; }
+  .regbox-in { background: var(--papel); width: 100%; max-width: 620px; max-height: 88vh; border-radius: 16px 16px 0 0; display: flex; flex-direction: column; }
+  .regbox-top { display: flex; justify-content: space-between; align-items: center; padding: 14px 16px; border-bottom: 1px solid var(--linha); }
+  .regbox-top b { font-size: 17px; }
+  .regbox-top button { background: none; border: 0; font-size: 26px; line-height: 1; cursor: pointer; color: var(--tinta); padding: 4px 8px; }
+  .regbox-texto { padding: 16px; overflow-y: auto; white-space: pre-wrap; font-size: 15px; line-height: 1.6; }
+  @media (min-width: 700px) { .regbox { align-items: center; } .regbox-in { border-radius: 16px; } }
+  .linkreg { display: none; margin: 8px auto 0; max-width: 720px; }
+  .linkreg button { background: none; border: 1.5px solid #d9dbe0; color: #fff; border-radius: 999px; padding: 6px 14px; font-size: 13px; font-weight: 600; cursor: pointer; }
   .rodape { font-size: 12px; color: var(--cinza); text-align: center; padding: 18px 0 30px; }
 </style>
 </head>
@@ -99,6 +109,7 @@
       <div class="evento" id="nomeEvento">Resultados</div>
       <div class="ao-vivo"><span class="ponto" id="ponto"></span><span id="status">conectando</span></div>
     </div>
+    <div class="linkreg" id="linkReg"><button type="button" onclick="abrirRegulamentoResultados()">📄 Regulamento</button></div>
     <select class="evento-sel" id="seletorEvento" style="display:none;" aria-label="Escolher evento" onchange="trocarEvento(this.value)"></select>
   </header>
 
@@ -129,9 +140,34 @@
       <div class="posicoes" id="meuPosicoes"></div>
     </section>
   </main>
+  <div class="regbox" id="regbox" hidden role="dialog" aria-modal="true" aria-labelledby="regTitulo" onclick="if(event.target===this)fecharRegulamento()">
+    <div class="regbox-in">
+      <div class="regbox-top"><b id="regTitulo">Regulamento</b><button type="button" onclick="fecharRegulamento()" aria-label="Fechar">×</button></div>
+      <div class="regbox-texto" id="regTexto"></div>
+    </div>
+  </div>
+
 
 <script src="/socket.io/socket.io.js"></script>
 <script>
+function abrirRegulamentoTexto(titulo, texto) {
+  document.getElementById('regTitulo').textContent = titulo;
+  document.getElementById('regTexto').textContent = texto || 'Esta corrida ainda não tem regulamento publicado.';
+  document.getElementById('regbox').hidden = false;
+}
+function fecharRegulamento() { document.getElementById('regbox').hidden = true; }
+document.addEventListener('keydown', e => { if (e.key === 'Escape') fecharRegulamento(); });
+
+async function abrirRegulamentoResultados() {
+  try {
+    const resp = await fetch(`/eventos/${eventoId}/regulamento`);
+    const d = await resp.json();
+    abrirRegulamentoTexto(`Regulamento — ${d.nome || ''}`, d.regulamento);
+  } catch (e) {
+    abrirRegulamentoTexto('Regulamento', 'Não foi possível carregar agora. Tente de novo.');
+  }
+}
+
 let eventoId = null;
 let jaAbriuLink = false;
 let dados = [];
@@ -199,6 +235,7 @@ function trocarEvento(id, eventos) {
   eventoId = Number(id);
   const ev = listaEventos.find(e => e.id === eventoId);
   document.getElementById('nomeEvento').textContent = ev ? ev.nome : 'Resultados';
+  document.getElementById('linkReg').style.display = ev && ev.tem_regulamento ? 'block' : 'none';
   document.title = `${ev ? ev.nome : 'Resultados'} — PontoCerto`;
   carregar();
 }

@@ -29,6 +29,8 @@ const ajustesBanco = (async () => {
     `ALTER TABLE eventos ADD COLUMN IF NOT EXISTS gratuito BOOLEAN NOT NULL DEFAULT false`,
     `ALTER TABLE eventos ADD COLUMN IF NOT EXISTS inscricoes_abertas BOOLEAN NOT NULL DEFAULT true`,
     `ALTER TABLE eventos ADD COLUMN IF NOT EXISTS distancia_km NUMERIC(6,2)`,
+    `ALTER TABLE eventos ADD COLUMN IF NOT EXISTS regulamento TEXT`,
+    `ALTER TABLE inscricoes ADD COLUMN IF NOT EXISTS aceitou_regulamento_em TIMESTAMPTZ`,
     `ALTER TABLE atletas ADD COLUMN IF NOT EXISTS cidade TEXT`,
     `ALTER TABLE inscricoes ADD COLUMN IF NOT EXISTS numero_peito INT`,
     `UPDATE inscricoes i SET numero_peito = n.num
@@ -134,7 +136,8 @@ app.get('/atletas/meu', async (req, res) => {
 app.get('/eventos/ativos', async (req, res) => {
   try {
     const result = await pool.query(
-      `SELECT id, nome, codigo, data_evento, valor_inscricao, oferece_camisa, gratuito, inscricoes_abertas, distancia_km
+      `SELECT id, nome, codigo, data_evento, valor_inscricao, oferece_camisa, gratuito, inscricoes_abertas, distancia_km,
+         (COALESCE(regulamento, '') <> '') AS tem_regulamento
        FROM eventos
        WHERE ativo = true
        ORDER BY data_evento ASC`
@@ -160,6 +163,18 @@ app.get('/eventos/codigo/:codigo', async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ erro: 'Erro ao buscar evento' });
+  }
+});
+
+// Texto do regulamento (página de resultados abre sob demanda)
+app.get('/eventos/:id/regulamento', async (req, res) => {
+  try {
+    const r = await pool.query('SELECT nome, regulamento FROM eventos WHERE id = $1', [req.params.id]);
+    if (!r.rows.length) return res.status(404).json({ erro: 'Evento não encontrado.' });
+    res.json(r.rows[0]);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ erro: 'Erro ao buscar regulamento.' });
   }
 });
 
@@ -246,6 +261,7 @@ app.post('/eventos/:eventoId/inscrever', async (req, res) => {
       return res.status(404).json({ erro: 'Atleta não encontrado' });
     }
     const payer_email = atletaResult.rows[0].email;
+    const aceitou = !!req.body.aceite_regulamento;
     if (String(req.body.cidade || '').trim()) {
       await pool.query('UPDATE atletas SET cidade = $1 WHERE id = $2', [String(req.body.cidade).trim(), atleta_id]);
     }
@@ -273,6 +289,11 @@ app.post('/eventos/:eventoId/inscrever', async (req, res) => {
         [atleta_id, eventoId, querCamisaValida, querCamisaValida ? camisa_tipo : null, querCamisaValida ? camisa_tamanho : null]
       );
       inscricao = novaInscricao.rows[0];
+    }
+
+    // guarda quando o atleta aceitou o regulamento
+    if (aceitou) {
+      await pool.query('UPDATE inscricoes SET aceitou_regulamento_em = NOW() WHERE id = $1', [inscricao.id]);
     }
 
     // Evento gratuito: confirma na hora, sem Pix
@@ -540,6 +561,7 @@ app.post('/admin/eventos', async (req, res) => {
   if (MODO_LOCAL && req.body.senha === ADMIN_PASSWORD) return eventoPeloOnline(req, res, '/admin/eventos');
   const { senha, nome, codigo, data_evento, categorias, oferece_camisa, gratuito } = req.body;
   const distancia_km = Number(String(req.body.distancia_km || '').replace(',', '.')) || null;
+  const regulamento = String(req.body.regulamento || '').trim() || null;
   const valor_inscricao = gratuito ? 0 : req.body.valor_inscricao;
 
   if (senha !== ADMIN_PASSWORD) {
@@ -557,9 +579,9 @@ app.post('/admin/eventos', async (req, res) => {
     await client.query('BEGIN');
 
     const eventoResult = await client.query(
-      `INSERT INTO eventos (nome, codigo, data_evento, valor_inscricao, oferece_camisa, gratuito, distancia_km)
-       VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
-      [nome, codigo.toUpperCase(), data_evento, valor_inscricao, !!oferece_camisa, !!gratuito, distancia_km]
+      `INSERT INTO eventos (nome, codigo, data_evento, valor_inscricao, oferece_camisa, gratuito, distancia_km, regulamento)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *`,
+      [nome, codigo.toUpperCase(), data_evento, valor_inscricao, !!oferece_camisa, !!gratuito, distancia_km, regulamento]
     );
     const evento = eventoResult.rows[0];
 
@@ -631,6 +653,7 @@ app.post('/admin/eventos/:id/editar', async (req, res) => {
   if (MODO_LOCAL && req.body.senha === ADMIN_PASSWORD) return eventoPeloOnline(req, res, `/admin/eventos/${id}/editar`);
   const { senha, nome, codigo, data_evento, categorias, oferece_camisa, gratuito } = req.body;
   const distancia_km = Number(String(req.body.distancia_km || '').replace(',', '.')) || null;
+  const regulamento = String(req.body.regulamento || '').trim() || null;
   const valor_inscricao = gratuito ? 0 : req.body.valor_inscricao;
   if (senha !== ADMIN_PASSWORD) return res.status(401).json({ erro: 'Senha incorreta.' });
   if (!nome || !codigo || !data_evento || (!gratuito && !valor_inscricao)) {
@@ -645,9 +668,9 @@ app.post('/admin/eventos/:id/editar', async (req, res) => {
     await client.query('BEGIN');
 
     const evento = await client.query(
-      `UPDATE eventos SET nome = $1, codigo = $2, data_evento = $3, valor_inscricao = $4, oferece_camisa = $5, gratuito = $6, distancia_km = $7
-       WHERE id = $8 RETURNING *`,
-      [nome, codigo.toUpperCase(), data_evento, valor_inscricao, !!oferece_camisa, !!gratuito, distancia_km, id]
+      `UPDATE eventos SET nome = $1, codigo = $2, data_evento = $3, valor_inscricao = $4, oferece_camisa = $5, gratuito = $6, distancia_km = $7, regulamento = $8
+       WHERE id = $9 RETURNING *`,
+      [nome, codigo.toUpperCase(), data_evento, valor_inscricao, !!oferece_camisa, !!gratuito, distancia_km, regulamento, id]
     );
     if (evento.rows.length === 0) {
       await client.query('ROLLBACK');

@@ -58,6 +58,15 @@
   .data3 span { font-size: 22px; padding-top: 12px; color: var(--cinza); }
   .data3 small { display: block; font-size: 12px; color: var(--cinza); margin-top: 3px; }
   .link-resultados { display: inline-block; margin-top: 10px; padding: 8px 14px; border-radius: 999px; border: 1.5px solid #d9dbe0; color: #fff; text-decoration: none; font-size: 14px; font-weight: 600; }
+  .regbox { position: fixed; inset: 0; background: rgba(0,0,0,.55); z-index: 20; display: flex; align-items: flex-end; justify-content: center; }
+  .regbox[hidden] { display: none !important; }
+  .regbox-in { background: var(--papel); width: 100%; max-width: 620px; max-height: 88vh; border-radius: 16px 16px 0 0; display: flex; flex-direction: column; }
+  .regbox-top { display: flex; justify-content: space-between; align-items: center; padding: 14px 16px; border-bottom: 1px solid var(--linha); }
+  .regbox-top b { font-size: 17px; }
+  .regbox-top button { background: none; border: 0; font-size: 26px; line-height: 1; cursor: pointer; color: var(--tinta); padding: 4px 8px; }
+  .regbox-texto { padding: 16px; overflow-y: auto; white-space: pre-wrap; font-size: 15px; line-height: 1.6; }
+  @media (min-width: 700px) { .regbox { align-items: center; } .regbox-in { border-radius: 16px; } }
+  .link-reg { margin-left: 6px; }
   [hidden] { display: none !important; }
 </style>
 </head>
@@ -68,6 +77,7 @@
       <div class="evento-nome" id="tituloEvento">Inscrição na corrida</div>
       <div class="evento-info" id="infoEvento"></div>
       <a id="linkResultados" class="link-resultados" hidden>🏆 Ver resultados</a>
+      <a id="linkRegulamento" class="link-resultados link-reg" href="#" hidden onclick="event.preventDefault(); abrirRegulamentoEvento()">📄 Regulamento</a>
     </div>
   </header>
 
@@ -204,6 +214,10 @@
         </div>
       </div>
 
+      <label class="check" id="blocoAceite" hidden>
+        <input type="checkbox" id="aceiteReg">
+        <span>Li e aceito o <a href="#" onclick="event.preventDefault(); abrirRegulamentoEvento()">regulamento</a></span>
+      </label>
       <button class="principal" id="btnInscrever" onclick="inscrever()">Confirmar</button>
       <div class="erro" id="erroInscrever"></div>
     </section>
@@ -228,8 +242,27 @@
       <a class="principal" id="btnMeuResultado" style="display:block; text-decoration:none; margin-top:24px;">🏆 Ver meu resultado</a>
     </section>
   </main>
+  <div class="regbox" id="regbox" hidden role="dialog" aria-modal="true" aria-labelledby="regTitulo" onclick="if(event.target===this)fecharRegulamento()">
+    <div class="regbox-in">
+      <div class="regbox-top"><b id="regTitulo">Regulamento</b><button type="button" onclick="fecharRegulamento()" aria-label="Fechar">×</button></div>
+      <div class="regbox-texto" id="regTexto"></div>
+    </div>
+  </div>
+
 
 <script>
+function abrirRegulamentoTexto(titulo, texto) {
+  document.getElementById('regTitulo').textContent = titulo;
+  document.getElementById('regTexto').textContent = texto || 'Esta corrida ainda não tem regulamento publicado.';
+  document.getElementById('regbox').hidden = false;
+}
+function fecharRegulamento() { document.getElementById('regbox').hidden = true; }
+document.addEventListener('keydown', e => { if (e.key === 'Escape') fecharRegulamento(); });
+
+function abrirRegulamentoEvento() {
+  abrirRegulamentoTexto(`Regulamento — ${evento.nome}`, evento.regulamento);
+}
+
 let evento = null;
 let atleta = null; // { id, nome }
 let inscricaoId = null;
@@ -323,6 +356,7 @@ async function buscarEvento() {
     const lr = document.getElementById('linkResultados');
     lr.href = `resultados.html?evento=${evento.id}`;
     lr.hidden = false;
+    document.getElementById('linkRegulamento').hidden = !evento.regulamento;
     if (evento.inscricoes_abertas === false) {
       erro.textContent = 'As inscrições dessa corrida estão encerradas.';
       return;
@@ -526,6 +560,8 @@ function irParaConfirmar() {
   // cadastro antigo (ou feito no app) sem cidade: pede aqui
   document.getElementById('blocoCidade').hidden = !!atleta.cidade;
   document.getElementById('blocoCamisa').hidden = !evento.oferece_camisa;
+  document.getElementById('blocoAceite').hidden = !evento.regulamento;
+  document.getElementById('aceiteReg').checked = false;
   document.getElementById('btnInscrever').textContent = evento.gratuito ? 'Confirmar inscrição' : 'Gerar Pix';
   mostrar('passoConfirmar');
 }
@@ -536,12 +572,16 @@ async function inscrever() {
   const querCamisa = evento.oferece_camisa && document.getElementById('querCamisa').checked;
   const cidade = atleta.cidade || document.getElementById('cidadeConfirmar').value.trim();
   if (!cidade) { erro.textContent = 'Informe a cidade onde você mora.'; return; }
+  if (evento.regulamento && !document.getElementById('aceiteReg').checked) {
+    erro.textContent = 'Para se inscrever, leia e marque "Li e aceito o regulamento".'; return;
+  }
   const btn = document.getElementById('btnInscrever');
   btn.disabled = true;
   try {
     const r = await api(`/eventos/${evento.id}/inscrever`, {
       atleta_id: atleta.id,
       cidade,
+      aceite_regulamento: !!evento.regulamento && document.getElementById('aceiteReg').checked,
       quer_camisa: querCamisa,
       camisa_tipo: querCamisa ? document.getElementById('camisaTipo').value : null,
       camisa_tamanho: querCamisa ? document.getElementById('camisaTamanho').value : null

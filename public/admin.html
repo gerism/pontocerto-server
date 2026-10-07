@@ -204,6 +204,10 @@
         Este evento oferece camisa no kit
       </label>
 
+      <label>Regulamento</label>
+      <textarea id="regulamentoCriar" rows="8" placeholder="Cole aqui o regulamento da prova (percurso, horários, kit, premiação, regras...)" style="width:100%; padding:12px; font-size:13px; line-height:1.5; border-radius:10px; background:#0f1115; color:#f3ede4; border:1px solid #2c3038; resize:vertical; font-family:inherit;"></textarea>
+      <div style="font-size:11.5px; color:#9a9ba3; margin-top:4px;">Se preenchido, o atleta precisa marcar "Li e aceito o regulamento" pra se inscrever pelo site.</div>
+
       <label>Categorias por idade *</label>
       <div id="listaCategorias"></div>
       <button type="button" class="acao" style="margin-top:8px; background:#1a1d24; color:#f3ede4; border:1px solid #2c3038;" onclick="adicionarCategoria()">+ Adicionar faixa de idade</button>
@@ -500,6 +504,7 @@ async function criarEvento() {
   const oferece_camisa = document.getElementById('ofereceCamisaCriar').checked;
   const gratuito = document.getElementById('gratuitoCriar').checked;
   const distancia_km = document.getElementById('distanciaCriar').value;
+  const regulamento = document.getElementById('regulamentoCriar').value;
   const categorias = coletarCategorias();
   const resultado = document.getElementById('resultadoCriar');
   const btn = document.getElementById('btnCriar');
@@ -521,7 +526,7 @@ async function criarEvento() {
     const resp = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ senha, nome, codigo, data_evento, valor_inscricao, categorias, oferece_camisa, gratuito, distancia_km })
+      body: JSON.stringify({ senha, nome, codigo, data_evento, valor_inscricao, categorias, oferece_camisa, gratuito, distancia_km, regulamento })
     });
     const dados = await resp.json();
 
@@ -535,6 +540,7 @@ async function criarEvento() {
       document.getElementById('dataCriar').value = '';
       document.getElementById('valorCriar').value = '';
       document.getElementById('distanciaCriar').value = '';
+      document.getElementById('regulamentoCriar').value = '';
       document.getElementById('ofereceCamisaCriar').checked = false;
       document.getElementById('gratuitoCriar').checked = false;
       alternarGratuito();
@@ -1298,6 +1304,7 @@ async function editarEvento(id) {
     document.getElementById('ofereceCamisaCriar').checked = !!ev.oferece_camisa;
     document.getElementById('gratuitoCriar').checked = !!ev.gratuito;
     document.getElementById('distanciaCriar').value = ev.distancia_km ? Number(ev.distancia_km) : '';
+    document.getElementById('regulamentoCriar').value = ev.regulamento || '';
     alternarGratuito();
     document.getElementById('listaCategorias').innerHTML = '';
     ev.categorias.forEach(c => adicionarCategoria(c.nome, c.idade_min, c.idade_max, c.sexo || '', c.id));
@@ -1314,7 +1321,7 @@ async function editarEvento(id) {
 
 function cancelarEdicao() {
   eventoEmEdicao = null;
-  ['nomeCriar', 'codigoCriar', 'dataCriar', 'valorCriar', 'distanciaCriar'].forEach(i => document.getElementById(i).value = '');
+  ['nomeCriar', 'codigoCriar', 'dataCriar', 'valorCriar', 'distanciaCriar', 'regulamentoCriar'].forEach(i => document.getElementById(i).value = '');
   document.getElementById('ofereceCamisaCriar').checked = false;
   document.getElementById('gratuitoCriar').checked = false;
   alternarGratuito();
@@ -1438,7 +1445,9 @@ async function atualizarStatusSync() {
     const s = await (await fetch('/admin/sync/status')).json();
     const hora = d => d ? new Date(d).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : '--';
     el.style.display = '';
-    el.innerHTML = s.online
+    el.innerHTML = s.online && s.erro
+      ? `🟠 Conectado ao site, mas a sincronização falhou: ${s.erro} · última certa às ${hora(s.ultima)}`
+      : s.online
       ? `🟢 Conectado ao site · sincronizado às ${hora(s.ultima)}${s.ultimoEnvio ? ` · tempos enviados às ${hora(s.ultimoEnvio)}` : ''}`
       : `🔴 Sem internet · tudo funcionando no PC${s.ultima ? ` · última sincronização às ${hora(s.ultima)}` : ''}`;
   } catch (e) {}
