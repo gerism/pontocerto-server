@@ -1062,18 +1062,6 @@ app.post('/admin/inscricoes/:id/vincular-tag', async (req, res) => {
   if (senha !== ADMIN_PASSWORD) return res.status(401).json({ erro: 'Senha incorreta.' });
 
   try {
-    // a mesma tag não pode estar com dois atletas no mesmo evento
-    const dono = await pool.query(
-      `SELECT a.nome, i.numero_peito FROM inscricoes i JOIN atletas a ON a.id = i.atleta_id
-       WHERE i.tag_epc = $1 AND i.id <> $2
-         AND i.evento_id = (SELECT evento_id FROM inscricoes WHERE id = $2)
-       LIMIT 1`,
-      [tag_epc, id]
-    );
-    if (dono.rows.length) {
-      const d = dono.rows[0];
-      return res.status(409).json({ erro: `Essa tag já está com ${d.nome}${d.numero_peito ? ' (Nº ' + d.numero_peito + ')' : ''}. Use outra tag.` });
-    }
     const result = await pool.query(
       `UPDATE inscricoes SET tag_epc = $1 WHERE id = $2 RETURNING *`,
       [tag_epc, id]
