@@ -175,7 +175,8 @@
       </div>
 
       <div id="blocoNovo" hidden>
-        <h2>Seus dados</h2>
+        <button type="button" class="secundario" onclick="mostrarEntrar()">🔑 Já tenho cadastro — entrar com CPF</button>
+        <h2>Primeira vez? Seus dados</h2>
         <label for="nome">Nome completo</label>
         <input id="nome" autocomplete="name">
         <label for="cpf">CPF</label>
@@ -203,7 +204,8 @@
       </div>
 
       <div id="blocoEntrar" hidden>
-        <h2>Já tenho cadastro</h2>
+        <h2>Entrar com seu cadastro</h2>
+        <p class="aviso" style="margin-top:0;">Já se cadastrou no site ou no app? Só confirme CPF e data de nascimento.</p>
         <label for="cpfEntrar">CPF</label>
         <input id="cpfEntrar" inputmode="numeric" placeholder="Só números">
         <label for="nascEntrarDia">Data de nascimento</label>
@@ -216,7 +218,7 @@
           </div>
         <p class="aviso">Exemplo: nasceu em 15 de agosto de 1985 → 15 / 08 / 1985</p>
         <button class="principal" id="btnEntrar" onclick="entrar()">Entrar</button>
-        <button class="link" onclick="mostrarNovo()">Fazer cadastro novo</button>
+        <button class="link" onclick="mostrarNovo()">Primeira vez? Fazer cadastro</button>
         <div class="erro" id="erroEntrar"></div>
       </div>
     </section>
@@ -415,7 +417,9 @@ async function prepararAtleta() {
     const meu = await api(`/atletas/meu?device_id=${encodeURIComponent(deviceId())}`);
     if (meu) { lembrarAtleta(meu); return mostrarConhecido(); }
   } catch (e) {}
-  mostrarNovo();
+  let local = false;
+  try { local = !!(await api('/modo')).local; } catch (e) {}
+  if (local || evento.inscricoes_abertas === false) mostrarEntrar(); else mostrarNovo();
 }
 
 function esconderBlocos() {
@@ -590,9 +594,13 @@ async function cadastrar() {
     lembrarAtleta(await api('/atletas', corpo));
     irParaConfirmar();
   } catch (e) {
-    erro.textContent = e.message.includes('Já existe')
-      ? 'Esse CPF já tem cadastro. Toque em "Já tenho cadastro" e entre com CPF e nascimento.'
-      : e.message;
+    if (e.message.includes('Já existe')) {
+      document.getElementById('cpfEntrar').value = corpo.cpf;
+      ['Dia', 'Mes', 'Ano'].forEach(p => document.getElementById('nascEntrar' + p).value = document.getElementById('nasc' + p).value);
+      mostrarEntrar();
+      document.getElementById('erroEntrar').textContent = 'Esse CPF já tem cadastro. Entrando...';
+      entrar();
+    } else erro.textContent = e.message;
   } finally {
     btn.disabled = false;
   }
@@ -609,7 +617,7 @@ async function entrar() {
   btn.disabled = true;
   try {
     lembrarAtleta(await api('/atletas/entrar', { cpf, data_nascimento }));
-    irParaConfirmar();
+    mostrarConhecido();
   } catch (e) {
     erro.textContent = e.message;
   } finally {
