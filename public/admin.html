@@ -1679,11 +1679,12 @@ async function iniciarModoPrograma() {
   document.getElementById('pcConfig').onclick = () => window.pontocerto.abrirConfig();
 
   // QR Code grande: o celular aponta a câmera e abre os resultados (funciona sem internet)
-  window.mostrarQrCelular = function (url) {
+  window.mostrarQrCelular = async function (url) {
+    // 2 QR Codes: Wi-Fi da prova (sem internet) e site (dados móveis)
+    let site = '';
+    try { site = ((await (await fetch('/modo')).json()).online || '').replace(/\/$/, ''); } catch (e) {}
     const abrir = () => {
-      const qr = qrcode(0, 'M');
-      qr.addData(url);
-      qr.make();
+      const svg = texto => { const q = qrcode(0, 'M'); q.addData(texto); q.make(); return q.createSvgTag({ cellSize: 10, margin: 2, scalable: true }); };
       let fundo = document.getElementById('pcQrFundo');
       if (!fundo) {
         fundo = document.createElement('div');
@@ -1692,12 +1693,24 @@ async function iniciarModoPrograma() {
         fundo.onclick = e => { if (e.target === fundo || e.target.dataset.fechar) fundo.remove(); };
         document.body.appendChild(fundo);
       }
+      const linkSite = site ? `${site}/resultados.html` : '';
       fundo.innerHTML = `
-        <div class="pc-qr-caixa">
+        <div class="pc-qr-caixa${linkSite ? ' dois' : ''}">
           <div class="pc-qr-titulo">🏁 Resultados ao vivo</div>
-          <div class="pc-qr-img">${qr.createSvgTag({ cellSize: 10, margin: 2, scalable: true })}</div>
-          <div class="pc-qr-dica">Conecte no Wi-Fi da prova e aponte a câmera do celular</div>
-          <div class="pc-qr-url">${url.replace('http://', '')}</div>
+          <div class="pc-qr-par">
+            <div>
+              <div class="pc-qr-sub">📶 No Wi-Fi da prova</div>
+              <div class="pc-qr-img">${svg(url)}</div>
+              <div class="pc-qr-dica">Funciona sem internet</div>
+              <div class="pc-qr-url">${url.replace('http://', '')}</div>
+            </div>
+            ${linkSite ? `<div>
+              <div class="pc-qr-sub">📱 Pelos dados móveis</div>
+              <div class="pc-qr-img">${svg(linkSite)}</div>
+              <div class="pc-qr-dica">Precisa de internet no PC e no celular</div>
+              <div class="pc-qr-url pequeno">${linkSite.replace(/^https?:\/\//, '')}</div>
+            </div>` : ''}
+          </div>
           <div class="pc-qr-acoes">
             <button type="button" onclick="window.print()">🖨️ Imprimir</button>
             <button type="button" data-fechar="1">Fechar</button>

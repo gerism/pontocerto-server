@@ -953,7 +953,7 @@ app.post('/admin/eventos/:id/leitura-rfid', async (req, res) => {
         [inscId]
       );
       if (larg.rows.length) {
-        io.emit('resultado-atualizado', { evento_id: Number(id) });
+        io.emit('resultado-atualizado', { evento_id: Number(id) }); enviarTemposLogo(id);
         return res.json({ tipo: 'largada', nome, horario: larg.rows[0].hora_largada });
       }
 
@@ -966,7 +966,7 @@ app.post('/admin/eventos/:id/leitura-rfid', async (req, res) => {
         [inscId, minimo]
       );
       if (cheg.rows.length) {
-        io.emit('resultado-atualizado', { evento_id: Number(id) });
+        io.emit('resultado-atualizado', { evento_id: Number(id) }); enviarTemposLogo(id);
         // quantos largaram e ainda estão na pista
         const pista = await pool.query(
           `SELECT COUNT(*)::int AS faltam FROM inscricoes
@@ -1001,7 +1001,7 @@ app.post('/admin/eventos/:id/leitura-rfid', async (req, res) => {
     // Avisa na hora todo mundo com o app aberto na tela de resultados
     // desse evento — assim que o chip passa na antena, atualiza sem
     // precisar esperar o próximo ciclo de atualização automática.
-    io.emit('resultado-atualizado', { evento_id: Number(id) });
+    io.emit('resultado-atualizado', { evento_id: Number(id) }); enviarTemposLogo(id);
 
     res.json({ nome: inscricao.rows[0].nome, horario: result.rows[0].horario });
   } catch (err) {
@@ -1027,7 +1027,7 @@ app.post('/admin/eventos/:id/dar-largada', async (req, res) => {
     if (result.rowCount === 0) {
       return res.status(409).json({ erro: 'Nenhum inscrito pago sem largada. Se for teste, zere a cronometragem antes.' });
     }
-    io.emit('resultado-atualizado', { evento_id: Number(id) });
+    io.emit('resultado-atualizado', { evento_id: Number(id) }); enviarTemposLogo(id);
     res.json({ sucesso: true, total: result.rowCount, horario: result.rows[0].hora_largada });
   } catch (err) {
     console.error(err);
@@ -1616,6 +1616,20 @@ async function juntarEventoNoPC(dados) {
 async function baixarEventoDoOnline(eventoId) {
   const dados = await chamarOnline('/admin/sync/exportar', { senha: ADMIN_PASSWORD, evento_id: eventoId });
   return juntarEventoNoPC(dados);
+}
+
+// No PC: cada largada/chegada vai pro site em poucos segundos (resultados ao
+// vivo pra quem está nos dados móveis). Junta várias leituras num envio só.
+const envioPendente = {};
+function enviarTemposLogo(eventoId) {
+  if (!MODO_LOCAL || !SERVIDOR_ONLINE || envioPendente[eventoId]) return;
+  envioPendente[eventoId] = setTimeout(async () => {
+    delete envioPendente[eventoId];
+    try {
+      await enviarResultadosProOnline(eventoId);
+      estadoSync.ultimoEnvio = new Date();
+    } catch (e) { /* sem internet: o ciclo de 1 minuto manda depois */ }
+  }, 3000);
 }
 
 async function enviarResultadosProOnline(eventoId) {
