@@ -1750,37 +1750,47 @@ async function iniciarModoPrograma() {
 
   // QR Code grande: o celular aponta a câmera e abre os resultados (funciona sem internet)
   window.mostrarQrCelular = async function (url) {
-    // 2 QR Codes: Wi-Fi da prova (sem internet) e site (dados móveis)
+    // Um QR Code só. Com internet no PC: QR do site (abre no Wi-Fi com internet E nos
+    // dados móveis). Sem internet: QR do Wi-Fi da prova (só quem está no Wi-Fi).
     let site = '';
     try { site = ((await (await fetch('/modo')).json()).online || '').replace(/\/$/, ''); } catch (e) {}
+    let temInternet = false;
+    if (site) {
+      try {
+        const ctl = new AbortController();
+        setTimeout(() => ctl.abort(), 4000);
+        temInternet = (await fetch(site + '/modo', { signal: ctl.signal, cache: 'no-store' })).ok;
+      } catch (e) {}
+    }
+    const opcoes = {
+      site: { link: `${site}/resultados.html`, sub: '📱 Wi-Fi ou dados móveis', dica: 'Aponte a câmera do celular', mostrar: site.replace(/^https?:\/\//, '') },
+      local: { link: url, sub: '📶 Conecte no Wi-Fi da prova', dica: 'Funciona sem internet', mostrar: url.replace('http://', '') }
+    };
+    let atual = temInternet ? 'site' : 'local';
+
     const abrir = () => {
-      const svg = texto => { const q = qrcode(0, 'M'); q.addData(texto); q.make(); return q.createSvgTag({ cellSize: 10, margin: 2, scalable: true }); };
+      const o = opcoes[atual];
+      const q = qrcode(0, 'M'); q.addData(o.link); q.make();
       let fundo = document.getElementById('pcQrFundo');
       if (!fundo) {
         fundo = document.createElement('div');
         fundo.id = 'pcQrFundo';
         fundo.className = 'pc-qr-fundo';
-        fundo.onclick = e => { if (e.target === fundo || e.target.dataset.fechar) fundo.remove(); };
+        fundo.onclick = e => {
+          if (e.target === fundo || e.target.dataset.fechar) fundo.remove();
+          if (e.target.dataset.trocar) { atual = atual === 'site' ? 'local' : 'site'; abrir(); }
+        };
         document.body.appendChild(fundo);
       }
-      const linkSite = site ? `${site}/resultados.html` : '';
+      const outro = atual === 'site' ? 'Sem internet? Usar o QR do Wi-Fi da prova' : (site ? 'Tem internet? Usar o QR que funciona também nos dados móveis' : '');
       fundo.innerHTML = `
-        <div class="pc-qr-caixa${linkSite ? ' dois' : ''}">
+        <div class="pc-qr-caixa">
           <div class="pc-qr-titulo">🏁 Resultados ao vivo</div>
-          <div class="pc-qr-par">
-            <div>
-              <div class="pc-qr-sub">📶 No Wi-Fi da prova</div>
-              <div class="pc-qr-img">${svg(url)}</div>
-              <div class="pc-qr-dica">Funciona sem internet</div>
-              <div class="pc-qr-url">${url.replace('http://', '')}</div>
-            </div>
-            ${linkSite ? `<div>
-              <div class="pc-qr-sub">📱 Pelos dados móveis</div>
-              <div class="pc-qr-img">${svg(linkSite)}</div>
-              <div class="pc-qr-dica">Precisa de internet no PC e no celular</div>
-              <div class="pc-qr-url pequeno">${linkSite.replace(/^https?:\/\//, '')}</div>
-            </div>` : ''}
-          </div>
+          <div class="pc-qr-sub">${o.sub}</div>
+          <div class="pc-qr-img">${q.createSvgTag({ cellSize: 10, margin: 2, scalable: true })}</div>
+          <div class="pc-qr-dica">${o.dica}</div>
+          <div class="pc-qr-url${atual === 'site' ? ' pequeno' : ''}">${o.mostrar}</div>
+          ${outro ? `<button type="button" class="pc-qr-trocar" data-trocar="1">${outro}</button>` : ''}
           <div class="pc-qr-acoes">
             <button type="button" onclick="window.print()">🖨️ Imprimir</button>
             <button type="button" data-fechar="1">Fechar</button>

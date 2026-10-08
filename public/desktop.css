@@ -315,3 +315,6 @@
   .pc-qr-acoes { display: none; }
   .pc-qr-caixa { width: 100%; }
 }
+
+.pc-qr-trocar { margin-top: 12px; background: none; border: 0; color: #555; font: inherit; font-size: 13px; text-decoration: underline; cursor: pointer; }
+@media print { .pc-qr-trocar { display: none; } }
