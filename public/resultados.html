@@ -108,8 +108,8 @@
 </head>
 <body>
   <header class="topo">
-    <div class="topo-linha" id="linhaVoltar" style="display:none; margin-bottom:8px;">
-      <button type="button" class="voltar-res" onclick="history.length > 1 ? history.back() : (location.href = 'inscricao.html')">← Voltar</button>
+    <div class="topo-linha" id="linhaVoltar" style="margin-bottom:8px;">
+      <button type="button" class="voltar-res" onclick="voltarDaTela()">← Início</button>
     </div>
     <div class="topo-linha">
       <div class="evento" id="nomeEvento">Resultados</div>
@@ -180,7 +180,11 @@ let jaAbriuLink = false;
 // "Meus resultados": mostra só o atleta desta tela
 const PARAMS = new URLSearchParams(location.search);
 const SO_MEU = PARAMS.get('so') === '1' && Number(PARAMS.get('numero')) > 0 ? Number(PARAMS.get('numero')) : 0;
-if (new URLSearchParams(location.search).get('voltar')) document.getElementById('linhaVoltar').style.display = 'flex';
+// ← Início: volta pra tela de onde veio (inscrição) ou abre a tela inicial (quem entrou pelo QR Code)
+function voltarDaTela() {
+  if (new URLSearchParams(location.search).get('voltar') && history.length > 1) history.back();
+  else location.href = 'inscricao.html';
+}
 let dados = [];
 let filtro = 'geral';
 
