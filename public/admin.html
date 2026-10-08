@@ -129,6 +129,15 @@
   th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid #2c3038; }
   th { color: #9a9ba3; font-size: 11px; text-transform: uppercase; }
 
+  .gerador-cat { border: 1px dashed #3a3f4a; border-radius: 12px; padding: 12px 14px 14px; margin: 6px 0 14px; }
+  .gerador-tit { font-weight: 700; font-size: 14px; margin-bottom: 8px; }
+  .gerador-campos { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+  .gerador-campos span { display: block; font-size: 11.5px; color: #9a9ba3; margin-bottom: 4px; }
+  .gerador-campos input, .gerador-campos select { width: 100%; box-sizing: border-box; }
+  .gerador-extra { display: flex !important; align-items: center; gap: 8px; font-size: 13px; margin-top: 10px; font-weight: 400; }
+  .gerador-extra input { width: auto; margin: 0; }
+  .gerador-previa { font-size: 12.5px; color: #9a9ba3; margin-top: 8px; line-height: 1.5; }
+  @media (max-width: 600px) { .gerador-campos { grid-template-columns: 1fr 1fr; } }
   .categoria-linha {
     display: flex;
     gap: 6px;
@@ -215,6 +224,25 @@
       <div style="font-size:11.5px; color:#9a9ba3; margin-top:4px;">Se preenchido, o atleta precisa marcar "Li e aceito o regulamento" pra se inscrever pelo site.</div>
 
       <label>Categorias por idade *</label>
+      <div class="gerador-cat">
+        <div class="gerador-tit">⚡ Gerar categorias automático</div>
+        <div class="gerador-campos">
+          <div><span>Começa em</span><input type="number" id="genInicio" value="15" min="0"></div>
+          <div><span>Termina em</span><input type="number" id="genFim" value="70" min="0"></div>
+          <div><span>Intervalo (anos)</span><input type="number" id="genIntervalo" value="5" min="1"></div>
+          <div><span>Sexo</span>
+            <select id="genSexo">
+              <option value="MF">Separar Masc. e Fem.</option>
+              <option value="">Ambos juntos</option>
+              <option value="M">Só Masculino</option>
+              <option value="F">Só Feminino</option>
+            </select>
+          </div>
+        </div>
+        <label class="gerador-extra"><input type="checkbox" id="genAcima"> Criar também a categoria acima do fim (ex.: 71 anos ou mais)</label>
+        <div class="gerador-previa" id="genPrevia"></div>
+        <button type="button" class="acao" style="margin-top:8px;" onclick="gerarCategorias()">⚡ Gerar categorias</button>
+      </div>
       <div id="listaCategorias"></div>
       <button type="button" class="acao" style="margin-top:8px; background:#1a1d24; color:#f3ede4; border:1px solid #2c3038;" onclick="adicionarCategoria()">+ Adicionar faixa de idade</button>
 
@@ -486,6 +514,48 @@ function adicionarCategoria(nome = '', min = '', max = '', sexo = '', catId = ''
 
 // já começa com uma linha em branco pra facilitar
 adicionarCategoria();
+
+// Gerador: começa em X, termina em Y, de N em N anos -> "15 a 20", "21 a 26"...
+function faixasGeradas() {
+  const ini = parseInt(document.getElementById('genInicio').value, 10);
+  const fim = parseInt(document.getElementById('genFim').value, 10);
+  const passo = parseInt(document.getElementById('genIntervalo').value, 10);
+  if (isNaN(ini) || isNaN(fim) || isNaN(passo) || passo < 1 || fim < ini) return [];
+  const faixas = [];
+  for (let a = ini; a <= fim && faixas.length < 60; ) {
+    const b = Math.min(a + passo, fim);
+    faixas.push({ nome: `${a} a ${b}`, min: a, max: b });
+    a = b + 1;
+  }
+  if (document.getElementById('genAcima').checked) faixas.push({ nome: `${fim + 1} ou mais`, min: fim + 1, max: 120 });
+  return faixas;
+}
+
+function atualizarPreviaCategorias() {
+  const f = faixasGeradas();
+  const sexo = document.getElementById('genSexo').value;
+  const vezes = sexo === 'MF' ? 2 : 1;
+  document.getElementById('genPrevia').textContent = f.length
+    ? `Vai criar ${f.length * vezes} categoria(s): ${f.map(x => x.nome).join(' · ')}${vezes === 2 ? ' (Masculino e Feminino)' : ''}`
+    : 'Confira os números: o fim tem que ser maior que o começo.';
+}
+['genInicio', 'genFim', 'genIntervalo', 'genSexo', 'genAcima'].forEach(id => {
+  const el = document.getElementById(id);
+  el.addEventListener('input', atualizarPreviaCategorias);
+  el.addEventListener('change', atualizarPreviaCategorias);
+});
+atualizarPreviaCategorias();
+
+function gerarCategorias() {
+  const faixas = faixasGeradas();
+  if (!faixas.length) { alert('Confira os números: o fim tem que ser maior que o começo.'); return; }
+  const preenchidas = coletarCategorias().length;
+  if (preenchidas && !confirm(`Isso troca as ${preenchidas} categoria(s) que estão na tela pelas novas. Continuar?`)) return;
+  document.getElementById('listaCategorias').innerHTML = '';
+  const sexo = document.getElementById('genSexo').value;
+  const sexos = sexo === 'MF' ? ['M', 'F'] : [sexo];
+  sexos.forEach(s => faixas.forEach(f => adicionarCategoria(f.nome, f.min, f.max, s)));
+}
 
 function coletarCategorias() {
   const linhas = document.querySelectorAll('.categoria-linha');
