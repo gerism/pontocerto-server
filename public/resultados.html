@@ -447,5 +447,36 @@ setInterval(carregar, 20000);
 
 iniciar();
 </script>
+
+<!-- uma aba só: se o atleta abrir de novo (QR Code, link), as abas antigas avisam e param -->
+<div id="abaVelha" style="display:none; position:fixed; inset:0; z-index:9999; background:rgba(10,11,14,.94); color:#fff; align-items:center; justify-content:center; text-align:center; padding:24px; font-family:inherit;">
+  <div style="max-width:320px;">
+    <div style="font-size:40px;">📱</div>
+    <div style="font-size:19px; font-weight:700; margin:10px 0 6px;">Esta tela já está aberta em outra aba</div>
+    <div style="font-size:14px; color:#b9bcc4; line-height:1.5;">Pode fechar esta aba. Para continuar usando esta, toque no botão.</div>
+    <button type="button" id="abaVelhaBtn" style="margin-top:18px; font:inherit; font-size:16px; font-weight:700; padding:12px 20px; border-radius:12px; border:0; background:#ff6a3d; color:#1a0d07;">Usar esta aba</button>
+  </div>
+</div>
+<script>
+(function () {
+  const atualizar = () => { if (typeof carregar === 'function') { try { carregar(); } catch (e) {} } };
+  // volta pra aba (celular congela aba em segundo plano): atualiza na hora
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) atualizar(); });
+  window.addEventListener('pageshow', e => { if (e.persisted) atualizar(); });
+  if (!('BroadcastChannel' in window)) return;
+  const canal = new BroadcastChannel('pontocerto-aba');
+  const eu = Math.random().toString(36).slice(2);
+  const tela = document.getElementById('abaVelha');
+  const assumir = () => { tela.style.display = 'none'; canal.postMessage({ tipo: 'nova', id: eu }); atualizar(); };
+  canal.onmessage = e => {
+    if (e.data && e.data.tipo === 'nova' && e.data.id !== eu) {
+      tela.style.display = 'flex';
+      try { window.close(); } catch (x) {}
+    }
+  };
+  document.getElementById('abaVelhaBtn').onclick = assumir;
+  canal.postMessage({ tipo: 'nova', id: eu });
+})();
+</script>
 </body>
 </html>
