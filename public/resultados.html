@@ -64,7 +64,15 @@
     padding: 12px 0; border-bottom: 1px solid var(--linha);
   }
   .pos { font-size: 22px; font-weight: 800; text-align: center; }
-  li:nth-child(-n+3) .pos { color: var(--ouro); }
+  li.top .pos { color: var(--ouro); }
+  li.cat-cab {
+    display: flex; justify-content: space-between; align-items: baseline; cursor: default;
+    margin-top: 26px; padding: 10px 2px 8px; border-bottom: 2px solid var(--tinta);
+    font-size: 16px; font-weight: 800;
+  }
+  li.cat-cab:first-child { margin-top: 6px; }
+  li.cat-cab span { font-size: 12px; font-weight: 600; color: var(--cinza); text-transform: none; }
+  li.cat-cab:active { background: none; }
   .nome { font-size: 16px; font-weight: 600; line-height: 1.25; }
   .detalhe { font-size: 12.5px; color: var(--cinza); margin-top: 2px; }
   .tempo { font-size: 18px; font-weight: 700; text-align: right; }
@@ -313,16 +321,41 @@ function desenhar() {
     ol.innerHTML = '<div class="vazio">Nenhum atleta encontrado com esse filtro.</div>';
     return;
   }
-  ol.innerHTML = visiveis.map(d => `
-    <li onclick="abrirMeu(${d.numero})" tabindex="0" onkeydown="if(event.key==='Enter')abrirMeu(${d.numero})" title="Ver resultado de ${esc(d.nome)}">
+  const item = d => `
+    <li class="${d.posicao <= 3 ? 'top' : ''}" onclick="abrirMeu(${d.numero})" tabindex="0" onkeydown="if(event.key==='Enter')abrirMeu(${d.numero})" title="Ver resultado de ${esc(d.nome)}">
       <div class="pos">${d.posicao}º</div>
       <div>
         <div class="nome">${esc(d.nome)}</div>
         <div class="detalhe">Nº ${d.numero}${d.categoria_nome ? ' — ' + esc(d.categoria_nome) : ''}${d.cidade ? ' — ' + esc(d.cidade) : ''}</div>
       </div>
       <div class="tempo">${formatarTempo(d.tempo_total)}${velocidade(d.tempo_total) ? `<div class="vel">${velocidade(d.tempo_total)}</div>` : ''}</div>
-    </li>
-  `).join('');
+    </li>`;
+
+  // Masculino / Feminino: separa por categoria, cada uma com a sua classificação
+  if ((filtro === 'M' || filtro === 'F') && !cat) {
+    const grupos = new Map();
+    lista.forEach(d => {
+      const chave = d.categoria_id || 0;
+      if (!grupos.has(chave)) grupos.set(chave, { nome: d.categoria_nome || 'Sem categoria', itens: [] });
+      grupos.get(chave).itens.push(d);
+    });
+    // categorias em ordem de idade (pelo primeiro número do nome: "39 a 44")
+    const idade = g => { const n = parseInt(String(g.nome).match(/\d+/)); return isNaN(n) ? 999 : n; };
+    const ordenados = [...grupos.values()].sort((a, b) => idade(a) - idade(b) || String(a.nome).localeCompare(b.nome));
+    let html = '';
+    ordenados.forEach(g => {
+      const comPos = g.itens.map((d, i) => ({ ...d, posicao: i + 1 }));
+      const vis = busca
+        ? comPos.filter(d => d.nome.toLowerCase().includes(busca) || String(d.numero) === busca || (d.cidade || '').toLowerCase().includes(busca))
+        : comPos;
+      if (!vis.length) return;
+      html += `<li class="cat-cab">${esc(g.nome)} <span>${g.itens.length} atleta(s)</span></li>` + vis.map(item).join('');
+    });
+    ol.innerHTML = html || '<div class="vazio">Nenhum atleta encontrado com esse filtro.</div>';
+    return;
+  }
+
+  ol.innerHTML = visiveis.map(item).join('');
 }
 
 // Resultado de um atleta só (toque no nome)
