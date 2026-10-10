@@ -767,6 +767,7 @@ function abrirEventoDaLista(codigo) {
 // (inscricao.html?evento=CLD2026), ela aparece em primeiro e destacada.
 const codigoNoLink = (new URLSearchParams(location.search).get('evento') || '').toUpperCase();
 carregarListaEventos(codigoNoLink);
+if (codigoNoLink) document.getElementById('codigo').value = codigoNoLink;
 </script>
 
 <!-- uma aba só: se o atleta abrir de novo (QR Code, link), as abas antigas avisam e param -->
