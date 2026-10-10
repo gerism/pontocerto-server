@@ -78,6 +78,7 @@
   .ev-card { display: block; width: 100%; text-align: left; cursor: pointer; font: inherit; color: var(--tinta);
     background: #fff; border: 1.5px solid var(--linha); border-radius: 14px; padding: 14px 14px 12px; }
   .ev-card:active { transform: scale(.99); }
+  .ev-card.ev-destaque { border: 2.5px solid var(--destaque); }
   .ev-topo { display: flex; justify-content: space-between; gap: 10px; align-items: flex-start; }
   .ev-nome { font-size: 17px; font-weight: 800; line-height: 1.2; }
   .ev-cod { flex: none; font-family: ui-monospace, monospace; font-size: 13px; font-weight: 700; border: 1.5px solid var(--tinta); border-radius: 8px; padding: 3px 8px; }
@@ -715,7 +716,7 @@ document.getElementById('codigo').addEventListener('keydown', e => { if (e.key =
 function esc(t) { return String(t ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
 
 // Tela inicial: todas as corridas, com o código de cada uma
-async function carregarListaEventos() {
+async function carregarListaEventos(destaque = '') {
   const caixa = document.getElementById('listaEventos');
   const quem = document.getElementById('quemSou');
   const eu = atletaLembrado();
@@ -736,6 +737,7 @@ async function carregarListaEventos() {
       try { const r = await api(`/atletas/${eu.id}/inscricao/${ev.id}`); if (r && r.pagamento_status === 'pago') minhas[ev.id] = r; } catch (e) {}
     }));
   }
+  if (destaque) eventos.sort((a, b) => (String(b.codigo).toUpperCase() === destaque) - (String(a.codigo).toUpperCase() === destaque));
   caixa.innerHTML = eventos.map(ev => {
     const data = new Date(String(ev.data_evento).slice(0, 10) + 'T12:00:00').toLocaleDateString('pt-BR');
     const valor = ev.gratuito ? 'Grátis' : 'R$ ' + Number(ev.valor_inscricao).toFixed(2).replace('.', ',');
@@ -746,7 +748,8 @@ async function carregarListaEventos() {
       : ev.inscricoes_abertas === false
         ? '<span class="ev-tag fechada">Inscrições encerradas</span>'
         : '<span class="ev-tag aberta">Inscrições abertas</span>';
-    return `<button type="button" class="ev-card" onclick="abrirEventoDaLista('${esc(ev.codigo)}')">
+    const dest = destaque && String(ev.codigo).toUpperCase() === destaque ? ' ev-destaque' : '';
+    return `<button type="button" class="ev-card${dest}" onclick="abrirEventoDaLista('${esc(ev.codigo)}')">
       <div class="ev-topo"><div class="ev-nome">${esc(ev.nome)}</div><div class="ev-cod">${esc(ev.codigo)}</div></div>
       <div class="ev-info">📅 ${data}${km} · ${valor}</div>
       <div class="ev-tags">${situacao}</div>
@@ -760,25 +763,10 @@ function abrirEventoDaLista(codigo) {
 }
 
 // link direto: inscricao.html?evento=CLD2026
-const codigoNoLink = new URLSearchParams(location.search).get('evento');
-if (codigoNoLink) {
-  document.getElementById('codigo').value = codigoNoLink;
-  buscarEvento();
-} else {
-  carregarListaEventos();
-  // no PC da prova (Wi-Fi/QR Code): se só tem um evento, já abre ele sem pedir código
-  (async () => {
-    try {
-      const modo = await (await fetch('/modo')).json();
-      if (!modo.local) return;
-      const ativos = await (await fetch('/eventos/ativos')).json();
-      if (Array.isArray(ativos) && ativos.length === 1 && !document.getElementById('codigo').value) {
-        document.getElementById('codigo').value = ativos[0].codigo;
-        buscarEvento();
-      }
-    } catch (e) {}
-  })();
-}
+// Sempre abre na lista de corridas. Se veio pelo link de uma corrida
+// (inscricao.html?evento=CLD2026), ela aparece em primeiro e destacada.
+const codigoNoLink = (new URLSearchParams(location.search).get('evento') || '').toUpperCase();
+carregarListaEventos(codigoNoLink);
 </script>
 
 <!-- uma aba só: se o atleta abrir de novo (QR Code, link), as abas antigas avisam e param -->
