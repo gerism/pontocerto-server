@@ -1088,6 +1088,33 @@ app.post('/admin/inscricoes/:id/vincular-tag', async (req, res) => {
   }
 });
 
+// Troca o número de peito do atleta (ex.: não gostou do 13)
+app.post('/admin/inscricoes/:id/numero', async (req, res) => {
+  const { id } = req.params;
+  const { senha } = req.body;
+  if (senha !== ADMIN_PASSWORD) return res.status(401).json({ erro: 'Senha incorreta.' });
+  const numero = parseInt(req.body.numero, 10);
+  if (!Number.isInteger(numero) || numero < 1 || numero > 99999) return res.status(400).json({ erro: 'Número inválido.' });
+  try {
+    const ins = await pool.query('SELECT evento_id FROM inscricoes WHERE id = $1', [id]);
+    if (!ins.rows.length) return res.status(404).json({ erro: 'Inscrição não encontrada.' });
+    const evento = ins.rows[0].evento_id;
+    const dono = await pool.query(
+      `SELECT a.nome FROM inscricoes i JOIN atletas a ON a.id = i.atleta_id
+       WHERE i.evento_id = $1 AND i.numero_peito = $2 AND i.id <> $3 LIMIT 1`,
+      [evento, numero, id]
+    );
+    if (dono.rows.length) return res.status(409).json({ erro: `O Nº ${numero} já é de ${dono.rows[0].nome}.` });
+    await pool.query('UPDATE inscricoes SET numero_peito = $1 WHERE id = $2', [numero, id]);
+    io.emit('resultado-atualizado', { evento_id: Number(evento) });
+    if (MODO_LOCAL) setTimeout(cicloSync, 500); // leva pro site na hora
+    res.json({ sucesso: true, numero });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ erro: 'Erro ao trocar o número.' });
+  }
+});
+
 // Marca (ou desmarca) que o kit — tag + camisa — já foi entregue pro
 // atleta, pra você acompanhar quem já está pronto pra corrida.
 app.post('/admin/inscricoes/:id/kit-entregue', async (req, res) => {
@@ -1443,11 +1470,12 @@ app.post('/admin/sync/importar-resultados', async (req, res) => {
     let atualizados = 0;
     for (const i of inscricoes) {
       const r = await client.query(
-        `UPDATE inscricoes ins SET hora_largada = $1, hora_chegada = $2, tag_epc = $3, kit_entregue = $4
+        `UPDATE inscricoes ins SET hora_largada = $1, hora_chegada = $2, tag_epc = $3, kit_entregue = $4,
+           numero_peito = COALESCE($8::int, ins.numero_peito)
          FROM atletas a
          WHERE ins.id = $5 AND ins.evento_id = $6 AND a.id = ins.atleta_id
            AND ($7::text IS NULL OR regexp_replace(a.cpf, '\\D', '', 'g') = regexp_replace($7::text, '\\D', '', 'g'))`,
-        [i.hora_largada, i.hora_chegada, i.tag_epc, !!i.kit_entregue, i.id, evento_id, i.cpf || null]
+        [i.hora_largada, i.hora_chegada, i.tag_epc, !!i.kit_entregue, i.id, evento_id, i.cpf || null, i.numero_peito ?? null]
       );
       atualizados += r.rowCount;
     }
@@ -1598,7 +1626,7 @@ async function juntarEventoNoPC(dados) {
       [insIds, ev.id, insAtletas]
     );
     for (const i of dados.inscricoes) {
-      await upsert(client, 'inscricoes', i, ['hora_largada', 'hora_chegada', 'tag_epc', 'kit_entregue']);
+      await upsert(client, 'inscricoes', i, ['hora_largada', 'hora_chegada', 'tag_epc', 'kit_entregue', 'numero_peito']);
     }
 
     for (const t of ['eventos', 'categorias_evento', 'atletas', 'inscricoes']) await acertarSequencia(client, t);
@@ -1634,7 +1662,7 @@ function enviarTemposLogo(eventoId) {
 
 async function enviarResultadosProOnline(eventoId) {
   const r = await pool.query(
-    `SELECT i.id, a.cpf, i.hora_largada, i.hora_chegada, i.tag_epc, i.kit_entregue
+    `SELECT i.id, a.cpf, i.hora_largada, i.hora_chegada, i.tag_epc, i.kit_entregue, i.numero_peito
      FROM inscricoes i JOIN atletas a ON a.id = i.atleta_id
      WHERE i.evento_id = $1 AND i.pagamento_status = 'pago' AND a.device_id NOT LIKE 'teste-%'`,
     [eventoId]
@@ -1675,7 +1703,7 @@ async function cicloSync() {
       {
         // sempre que algo mudou no PC (tag, kit, largada, chegada), manda pro site
         const marca = JSON.stringify((await pool.query(
-          `SELECT id, hora_largada, hora_chegada, tag_epc, kit_entregue FROM inscricoes
+          `SELECT id, hora_largada, hora_chegada, tag_epc, kit_entregue, numero_peito FROM inscricoes
            WHERE evento_id = $1 ORDER BY id`, [evOn.id])).rows);
         if (ultimoEnviado[evOn.id] !== marca) {
           await enviarResultadosProOnline(evOn.id);

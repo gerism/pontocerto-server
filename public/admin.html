@@ -756,7 +756,7 @@ async function carregarInscritos() {
         <tr><th>Nº</th><th>Nome</th><th>Cidade</th><th>Idade</th><th>Categoria</th><th>Sexo</th><th>Camisa</th><th>Tag</th><th>Pronto</th></tr>
         ${inscritos.map(i => `
           <tr id="linha-${i.inscricao_id}" class="${i.kit_entregue ? 'linha-pronta' : ''}">
-            <td>${i.numero_peito ?? '-'}</td>
+            <td id="num-${i.inscricao_id}" style="cursor:pointer; white-space:nowrap;" title="Clique pra trocar o número" onclick="trocarNumero(${i.inscricao_id}, ${i.numero_peito ?? 'null'})">${i.numero_peito ?? '-'} <span style="font-size:11px; opacity:.6;">✏️</span></td>
             <td><span style="cursor:pointer;" title="Editar cadastro" onclick="abrirEditarAtleta(${i.atleta_id})">✏️ ${i.nome}</span></td>
             <td>${i.cidade || '-'}</td>
             <td>${i.idade}</td>
@@ -993,6 +993,47 @@ function imprimirResultados() {
 // ============================================
 // VINCULAR TAG (leitor de mesa em modo teclado)
 // ============================================
+// Trocar o número de peito: clica no número, digita o novo e aperta Enter
+// (o programa do Windows não aceita a janelinha prompt(), então é no próprio campo)
+function trocarNumero(inscricaoId, atual) {
+  const cel = document.getElementById(`num-${inscricaoId}`);
+  if (cel.querySelector('input')) return;
+  const desenhar = n => {
+    cel.innerHTML = `${n ?? '-'} <span style="font-size:11px; opacity:.6;">✏️</span>`;
+    cel.setAttribute('onclick', `trocarNumero(${inscricaoId}, ${n ?? 'null'})`);
+  };
+  cel.removeAttribute('onclick');
+  cel.innerHTML = `<input type="number" min="1" value="${atual ?? ''}" style="width:70px; padding:6px; font-size:13px;" title="Enter salva, Esc cancela">`;
+  const campo = cel.querySelector('input');
+  campo.focus(); campo.select();
+  let feito = false;
+  const salvar = async () => {
+    if (feito) return; feito = true;
+    const numero = parseInt(campo.value, 10);
+    if (!numero || numero < 1 || numero === atual) { desenhar(atual); return; }
+    const senha = document.getElementById('senhaInscritos').value.trim();
+    cel.innerHTML = '<span style="color:#9a9ba3;">...</span>';
+    try {
+      const resp = await fetch(`/admin/inscricoes/${inscricaoId}/numero`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ senha, numero })
+      });
+      const dados = await resp.json();
+      if (!resp.ok) { desenhar(atual); alert('❌ ' + (dados.erro || 'Não foi possível trocar.')); return; }
+      desenhar(numero);
+    } catch (e) {
+      desenhar(atual);
+      alert('❌ Erro de conexão com o servidor.');
+    }
+  };
+  campo.addEventListener('keydown', e => {
+    if (e.key === 'Enter') { e.preventDefault(); salvar(); }
+    else if (e.key === 'Escape') { feito = true; desenhar(atual); }
+  });
+  campo.addEventListener('blur', salvar);
+}
+
 function tagTravada(inscricaoId) {
   const caixa = document.querySelector(`#linha-${inscricaoId} input[type=checkbox]`);
   return !!(caixa && caixa.checked);
