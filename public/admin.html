@@ -129,6 +129,15 @@
   th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid #2c3038; }
   th { color: #9a9ba3; font-size: 11px; text-transform: uppercase; }
 
+  .placar { margin-top: 14px; border: 1px solid #2c3038; border-radius: 14px; padding: 14px 16px; background: #15181e; }
+  .placar-linha { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; text-align: center; }
+  .placar-linha b { display: block; font-size: 30px; line-height: 1.1; }
+  .placar-linha span { font-size: 12px; color: #9a9ba3; }
+  .placar-espera { background: #1f2a44; border: 2px solid #4f7cff; text-align: center; padding: 20px 16px; }
+  .placar-fim { background: #12301f; border: 2px solid #3ddc84; text-align: center; padding: 20px 16px; }
+  .placar-tit { font-size: 22px; font-weight: 800; letter-spacing: .01em; }
+  .placar-num { font-size: 84px; font-weight: 800; line-height: 1; margin: 10px 0 4px; color: #fff; }
+  .placar-sub { font-size: 15px; color: #c9ccd3; margin-top: 4px; }
   .gerador-cat { border: 1px dashed #3a3f4a; border-radius: 12px; padding: 12px 14px 14px; margin: 6px 0 14px; }
   .gerador-tit { font-weight: 700; font-size: 14px; margin-bottom: 8px; }
   .gerador-campos { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
@@ -327,6 +336,8 @@
         <button type="button" id="btnLargada" class="acao" style="flex:1;" onclick="iniciarCorrida()">🟢 Iniciar corrida</button>
         <button type="button" id="btnChegada" class="acao" style="flex:1;" onclick="finalizarCorrida()" disabled>🏁 Chegada</button>
       </div>
+
+      <div id="placarCrono" style="display:none;"></div>
 
       <label>Leitor</label>
       <input type="text" id="campoLeitor" placeholder="Dê a largada pra começar a ler as chegadas" disabled
@@ -1126,6 +1137,46 @@ function focarLeitor() {
 // estado da corrida: 'parada' -> 'correndo' -> 'finalizada'
 let estadoCrono = 'parada';
 
+// Placar: largaram / na pista / chegaram. Quando todos largaram, mostra
+// "aguardando a chegada" com a contagem do que falta chegar.
+async function atualizarPlacar() {
+  const caixa = document.getElementById('placarCrono');
+  if (!eventoSelecionadoCrono || estadoCrono === 'parada') { caixa.style.display = 'none'; return; }
+  const senha = document.getElementById('senhaCrono').value.trim();
+  let p;
+  try {
+    const resp = await fetch(`/admin/eventos/${eventoSelecionadoCrono}/placar`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ senha })
+    });
+    if (!resp.ok) return;
+    p = await resp.json();
+  } catch (e) { return; }
+  const faltamChegar = Math.max(0, p.total - p.chegaram);
+  const faltamLargar = Math.max(0, p.total - p.largaram);
+  let html;
+  if (p.total > 0 && p.chegaram >= p.total) {
+    html = `<div class="placar placar-fim">
+      <div class="placar-tit">🏁 TODOS CHEGARAM!</div>
+      <div class="placar-sub">${p.chegaram} de ${p.total} atletas completaram a prova</div></div>`;
+  } else if (p.total > 0 && faltamLargar === 0) {
+    html = `<div class="placar placar-espera">
+      <div class="placar-tit">✅ TODOS JÁ LARGARAM — AGUARDANDO A CHEGADA</div>
+      <div class="placar-num">${faltamChegar}</div>
+      <div class="placar-sub">${faltamChegar === 1 ? 'atleta falta chegar' : 'atletas faltam chegar'} · ${p.chegaram} de ${p.total} já chegaram</div></div>`;
+  } else {
+    html = `<div class="placar">
+      <div class="placar-linha">
+        <div><b>${p.largaram}</b><span>largaram</span></div>
+        <div><b>${faltamLargar}</b><span>faltam largar</span></div>
+        <div><b>${p.na_pista}</b><span>na pista</span></div>
+        <div><b>${p.chegaram}</b><span>chegaram</span></div>
+      </div></div>`;
+  }
+  caixa.innerHTML = html;
+  caixa.style.display = 'block';
+}
+setInterval(() => { if (estadoCrono === 'correndo') atualizarPlacar(); }, 3000);
+
 function atualizarBotoesCrono(horaLargada) {
   const ativo = 'flex:1;';
   const inativo = 'flex:1; background:#1a1d24; color:#6b6d75; border:1px solid #2c3038; cursor:not-allowed;';
@@ -1168,6 +1219,7 @@ function iniciarCorrida() {
   modoCrono = 'auto';
   estadoCrono = 'correndo';
   atualizarBotoesCrono(hora);
+  atualizarPlacar();
   logCrono(`<span class="ok">🟢 Corrida iniciada às ${hora} — cada atleta começa a contar quando passa no leitor</span>`);
   focarLeitor();
 }
@@ -1178,6 +1230,7 @@ function finalizarCorrida(automatico = false) {
 
   estadoCrono = 'finalizada';
   atualizarBotoesCrono();
+  atualizarPlacar();
   logCrono('<span class="ok">🏁 Corrida finalizada</span>');
 
   document.getElementById('senhaResultados').value = document.getElementById('senhaCrono').value;
@@ -1212,6 +1265,7 @@ async function carregarEventosCrono() {
 function selecionarEventoCrono(id, elemento) {
   eventoSelecionadoCrono = id;
   estadoCrono = 'parada';
+  atualizarPlacar();
   modoCrono = 'largada';
   atualizarBotoesCrono();
   document.querySelectorAll('#listaEventosCrono .evento-item').forEach(el => el.classList.remove('selecionado'));
@@ -1265,6 +1319,7 @@ async function registrarLeituraCrono(campo) {
         }
       }
       status.textContent = '';
+      atualizarPlacar();
     } else if ((dados.erro || '').includes('Acabou de largar')) {
       status.textContent = `Acabou de largar, leitura ignorada (${tag})`;
     } else if ((dados.erro || '').includes('já tem chegada')) {
