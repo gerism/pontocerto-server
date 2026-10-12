@@ -136,8 +136,10 @@
 
     <div class="filtros" role="group" aria-label="Filtrar">
       <button type="button" data-f="geral" aria-pressed="true">Geral</button>
-      <button type="button" data-f="M" aria-pressed="false">Masculino</button>
-      <button type="button" data-f="F" aria-pressed="false">Feminino</button>
+      <button type="button" data-f="M" aria-pressed="false">Geral Masculino</button>
+      <button type="button" data-f="MC" aria-pressed="false">Categorias Masc.</button>
+      <button type="button" data-f="F" aria-pressed="false">Geral Feminino</button>
+      <button type="button" data-f="FC" aria-pressed="false">Categorias Fem.</button>
       <select id="filtroCategoria" aria-label="Categoria"><option value="">Categoria</option></select>
     </div>
     <input class="busca" id="busca" type="search" placeholder="Buscar por nome, número ou cidade" aria-label="Buscar por nome, número ou cidade">
@@ -296,7 +298,7 @@ function desenhar() {
 
   let lista = dados;
   if (cat) lista = lista.filter(d => String(d.categoria_id) === cat);
-  else if (filtro === 'M' || filtro === 'F') lista = lista.filter(d => d.genero === filtro);
+  else if (filtro !== 'geral') lista = lista.filter(d => d.genero === filtro[0]);
 
   const lider = document.getElementById('lider');
   if (lista.length) {
@@ -332,7 +334,7 @@ function desenhar() {
     </li>`;
 
   // Masculino / Feminino: separa por categoria, cada uma com a sua classificação
-  if ((filtro === 'M' || filtro === 'F') && !cat) {
+  if ((filtro === 'MC' || filtro === 'FC') && !cat) {
     const grupos = new Map();
     lista.forEach(d => {
       const chave = d.categoria_id || 0;
@@ -342,10 +344,8 @@ function desenhar() {
     // categorias em ordem de idade (pelo primeiro número do nome: "39 a 44")
     const idade = g => { const n = parseInt(String(g.nome).match(/\d+/)); return isNaN(n) ? 999 : n; };
     const ordenados = [...grupos.values()].sort((a, b) => idade(a) - idade(b) || String(a.nome).localeCompare(b.nome));
-    // primeiro a classificação geral do sexo, depois cada categoria
-    const geral = { nome: filtro === 'M' ? 'Geral Masculino' : 'Geral Feminino', itens: lista };
     let html = '';
-    [geral, ...ordenados].forEach(g => {
+    ordenados.forEach(g => {
       const comPos = g.itens.map((d, i) => ({ ...d, posicao: i + 1 }));
       const vis = busca
         ? comPos.filter(d => d.nome.toLowerCase().includes(busca) || String(d.numero) === busca || (d.cidade || '').toLowerCase().includes(busca))
