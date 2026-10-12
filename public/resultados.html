@@ -342,8 +342,10 @@ function desenhar() {
     // categorias em ordem de idade (pelo primeiro número do nome: "39 a 44")
     const idade = g => { const n = parseInt(String(g.nome).match(/\d+/)); return isNaN(n) ? 999 : n; };
     const ordenados = [...grupos.values()].sort((a, b) => idade(a) - idade(b) || String(a.nome).localeCompare(b.nome));
+    // primeiro a classificação geral do sexo, depois cada categoria
+    const geral = { nome: filtro === 'M' ? 'Geral Masculino' : 'Geral Feminino', itens: lista };
     let html = '';
-    ordenados.forEach(g => {
+    [geral, ...ordenados].forEach(g => {
       const comPos = g.itens.map((d, i) => ({ ...d, posicao: i + 1 }));
       const vis = busca
         ? comPos.filter(d => d.nome.toLowerCase().includes(busca) || String(d.numero) === busca || (d.cidade || '').toLowerCase().includes(busca))
