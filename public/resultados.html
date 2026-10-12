@@ -53,7 +53,10 @@
     border: 1.5px solid var(--tinta); background: transparent; color: var(--tinta);
     padding: 8px 14px; border-radius: 999px; font-size: 14px; font-weight: 600; cursor: pointer;
   }
-  .filtros button[aria-pressed="true"] { background: var(--tinta); color: var(--papel); }
+  .filtros button[aria-pressed="true"], .filtros select.ativo {
+    background: #ff5a1f !important; border-color: #ff5a1f !important; color: #fff !important;
+    box-shadow: 0 2px 10px rgba(255, 90, 31, .45); font-weight: 800;
+  }
   .filtros select { border: 1.5px solid var(--tinta); border-radius: 999px; padding: 8px 12px; font-size: 14px; background: transparent; color: var(--tinta); }
   .busca { width: 100%; padding: 12px; font-size: 16px; border: 1.5px solid var(--linha); border-radius: 10px; background: #fff; margin-bottom: 8px; }
   button:focus-visible, select:focus-visible, input:focus-visible { outline: 3px solid var(--largada); outline-offset: 2px; }
@@ -420,9 +423,11 @@ document.querySelectorAll('.filtros button').forEach(b => b.addEventListener('cl
   filtro = b.dataset.f;
   document.getElementById('filtroCategoria').value = '';
   document.querySelectorAll('.filtros button').forEach(x => x.setAttribute('aria-pressed', x === b ? 'true' : 'false'));
+  document.getElementById('filtroCategoria').classList.remove('ativo');
   desenhar();
 }));
 document.getElementById('filtroCategoria').addEventListener('change', e => {
+  e.target.classList.toggle('ativo', !!e.target.value);
   if (e.target.value) document.querySelectorAll('.filtros button').forEach(x => x.setAttribute('aria-pressed', 'false'));
   else document.querySelector('.filtros button[data-f="geral"]').click();
   desenhar();
