@@ -46,6 +46,26 @@ const ajustesBanco = (async () => {
      ) n
      WHERE i.id = n.id`
   ];
+  if (process.env.MODO_LOCAL) {
+    // PC: marca o que mudou AQUI e ainda não foi pro site (tag, kit, número, tempos).
+    // Assim dois PCs trabalham juntos: o site guarda o mais novo e cada PC puxa de lá,
+    // sem que um PC com dado velho apague o que o outro fez.
+    comandos.push(
+      `ALTER TABLE inscricoes ADD COLUMN IF NOT EXISTS pc_pendente BOOLEAN NOT NULL DEFAULT false`,
+      `CREATE OR REPLACE FUNCTION pc_marcar_pendente() RETURNS trigger AS $$
+       BEGIN
+         IF COALESCE(current_setting('pontocerto.sync', true), '') <> '1' AND (
+              NEW.tag_epc IS DISTINCT FROM OLD.tag_epc OR NEW.kit_entregue IS DISTINCT FROM OLD.kit_entregue
+           OR NEW.numero_peito IS DISTINCT FROM OLD.numero_peito
+           OR NEW.hora_largada IS DISTINCT FROM OLD.hora_largada OR NEW.hora_chegada IS DISTINCT FROM OLD.hora_chegada) THEN
+           NEW.pc_pendente := true;
+         END IF;
+         RETURN NEW;
+       END $$ LANGUAGE plpgsql`,
+      `DROP TRIGGER IF EXISTS trg_pc_pendente ON inscricoes`,
+      `CREATE TRIGGER trg_pc_pendente BEFORE UPDATE ON inscricoes FOR EACH ROW EXECUTE FUNCTION pc_marcar_pendente()`
+    );
+  }
   for (const sql of comandos) {
     try { await pool.query(sql); }
     catch (err) { console.error('Erro ao ajustar banco:', err.message); }
@@ -1037,6 +1057,28 @@ app.post('/admin/eventos/:id/dar-largada', async (req, res) => {
 
 // Zera largada e chegada de todos os inscritos do evento (pra testes).
 // Não mexe em inscrição, pagamento nem tag — só apaga os horários.
+// Placar da corrida no admin: quantos largaram, chegaram e ainda faltam
+app.post('/admin/eventos/:id/placar', async (req, res) => {
+  if (req.body.senha !== ADMIN_PASSWORD) return res.status(401).json({ erro: 'Senha incorreta.' });
+  try {
+    const r = await pool.query(
+      `SELECT COUNT(*)::int AS pagos,
+              COUNT(*) FILTER (WHERE tag_epc IS NOT NULL AND tag_epc <> '')::int AS com_tag,
+              COUNT(*) FILTER (WHERE hora_largada IS NOT NULL)::int AS largaram,
+              COUNT(*) FILTER (WHERE hora_chegada IS NOT NULL)::int AS chegaram
+       FROM inscricoes WHERE evento_id = $1 AND pagamento_status = 'pago'`,
+      [req.params.id]
+    );
+    const p = r.rows[0];
+    // quem pode correr: quem tem tag (se ninguém tiver tag ainda, todos os pagos)
+    const total = Math.max(p.com_tag || p.pagos, p.largaram);
+    res.json({ total, largaram: p.largaram, chegaram: p.chegaram, na_pista: p.largaram - p.chegaram });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ erro: 'Erro ao ler o placar.' });
+  }
+});
+
 app.post('/admin/eventos/:id/zerar-cronometragem', async (req, res) => {
   const { id } = req.params;
   const { senha } = req.body;
@@ -1550,9 +1592,10 @@ async function upsert(client, tabela, linha, manterLocal = []) {
   const cols = Object.keys(linha).filter(c => !pular.includes(c) && existem.includes(c));
   const valores = cols.map(c => linha[c]);
   const marcas = cols.map((_, i) => `$${i + 1}`);
+  const temPendente = existem.includes('pc_pendente');
   const sets = cols.filter(c => c !== 'id').map(c =>
-    // largada/chegada: o PC sempre manda (se zerou aqui, o site não traz o tempo de volta)
-    manterLocal.includes(c) && (c === 'hora_largada' || c === 'hora_chegada') ? `${c} = ${tabela}.${c}`
+    // mudou neste PC e ainda não foi pro site: fica o do PC; senão vale o do site
+    manterLocal.includes(c) && temPendente ? `${c} = CASE WHEN ${tabela}.pc_pendente THEN ${tabela}.${c} ELSE EXCLUDED.${c} END`
     : manterLocal.includes(c) ? `${c} = COALESCE(${tabela}.${c}, EXCLUDED.${c})` : `${c} = EXCLUDED.${c}`
   );
   await client.query(
@@ -1578,6 +1621,7 @@ async function juntarEventoNoPC(dados) {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
+    await client.query(`SELECT set_config('pontocerto.sync', '1', true)`); // não marca como mudança do PC
 
     // evento antigo do PC com mesmo código e id diferente, ou mesmo id e código diferente
     await client.query(
@@ -1664,10 +1708,22 @@ async function enviarResultadosProOnline(eventoId) {
   const r = await pool.query(
     `SELECT i.id, a.cpf, i.hora_largada, i.hora_chegada, i.tag_epc, i.kit_entregue, i.numero_peito
      FROM inscricoes i JOIN atletas a ON a.id = i.atleta_id
-     WHERE i.evento_id = $1 AND i.pagamento_status = 'pago' AND a.device_id NOT LIKE 'teste-%'`,
+     WHERE i.evento_id = $1 AND i.pagamento_status = 'pago' AND a.device_id NOT LIKE 'teste-%'
+       AND i.pc_pendente`,
     [eventoId]
   );
-  return chamarOnline('/admin/sync/importar-resultados', { senha: ADMIN_PASSWORD, evento_id: eventoId, inscricoes: r.rows });
+  if (!r.rows.length) return { sucesso: true, atualizados: 0 };
+  const resposta = await chamarOnline('/admin/sync/importar-resultados', { senha: ADMIN_PASSWORD, evento_id: eventoId, inscricoes: r.rows });
+  // enviado: tira a marca (só se não mudou de novo enquanto enviava)
+  for (const i of r.rows) {
+    await pool.query(
+      `UPDATE inscricoes SET pc_pendente = false
+       WHERE id = $1 AND tag_epc IS NOT DISTINCT FROM $2 AND kit_entregue IS NOT DISTINCT FROM $3
+         AND numero_peito IS NOT DISTINCT FROM $4 AND hora_largada IS NOT DISTINCT FROM $5 AND hora_chegada IS NOT DISTINCT FROM $6`,
+      [i.id, i.tag_epc, i.kit_entregue, i.numero_peito, i.hora_largada, i.hora_chegada]
+    );
+  }
+  return resposta;
 }
 
 // --- Lado PC: sincronização automática (a cada 1 minuto)
@@ -1695,22 +1751,13 @@ async function cicloSync() {
         evOn.inscricoes_abertas = false;
       }
 
-      if (!local || evOn.inscricoes_abertas || local.inscricoes_abertas) {
-        // aberto (ou acabou de fechar, ou é novo): copia do online
-        await baixarEventoDoOnline(evOn.id);
+      // 1) primeiro manda pro site o que mudou neste PC (tag, kit, número, largada, chegada)
+      if (local) {
+        const env = await enviarResultadosProOnline(evOn.id);
+        if (env && env.atualizados) estadoSync.ultimoEnvio = new Date();
       }
-
-      {
-        // sempre que algo mudou no PC (tag, kit, largada, chegada), manda pro site
-        const marca = JSON.stringify((await pool.query(
-          `SELECT id, hora_largada, hora_chegada, tag_epc, kit_entregue, numero_peito FROM inscricoes
-           WHERE evento_id = $1 ORDER BY id`, [evOn.id])).rows);
-        if (ultimoEnviado[evOn.id] !== marca) {
-          await enviarResultadosProOnline(evOn.id);
-          ultimoEnviado[evOn.id] = marca;
-          estadoSync.ultimoEnvio = new Date();
-        }
-      }
+      // 2) depois puxa do site: inscrições novas e o que outro PC mudou
+      await baixarEventoDoOnline(evOn.id);
     }
     estadoSync.ultima = new Date();
     estadoSync.erro = null;
